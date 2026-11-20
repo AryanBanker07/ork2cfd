@@ -12,6 +12,7 @@ class DomainMode(str, Enum):
     FLUID_DOMAIN = "fluid_domain"
     SYMMETRY_HALF = "symmetry_half"
     SYMMETRY_SECTOR = "symmetry_sector"
+    SYMMETRY_HALF_SECTOR = "symmetry_half_sector"
     AXISYMMETRIC_2D = "axisymmetric_2d"
     OML_ONLY = "oml_only"
 
@@ -118,3 +119,4 @@ class PipelineConfig:
     domain: DomainConfig = field(default_factory=DomainConfig)
     flight: FlightCondition = field(default_factory=FlightCondition)
     deliverables: DeliverableConfig = field(default_factory=DeliverableConfig)
+    stage_selection: str = "all"

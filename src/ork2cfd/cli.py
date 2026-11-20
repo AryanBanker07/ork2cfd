@@ -86,6 +86,13 @@ def inspect(ork_file: Path) -> None:
             )
 
     console.print(table)
+    n_sym = rocket.rotational_symmetry_order
+    stage_kind = "Multistage" if rocket.is_multistage else "Single-stage"
+    console.print(
+        f"[bold]Stages:[/] {rocket.stage_count} ({stage_kind}) | "
+        f"[bold]Rotational Symmetry:[/] {n_sym}-fold "
+        f"({360.0 / n_sym:.1f}° sector / {180.0 / n_sym:.1f}° half-sector)"
+    )
     console.print(
         f"[bold]Total Length:[/] {rocket.total_length:.3f} m | "
         f"[bold]Max Dia:[/] {rocket.max_diameter*1000:.1f} mm | "
@@ -107,6 +114,11 @@ def inspect(ork_file: Path) -> None:
     "--shape",
     type=click.Choice([s.value for s in EnclosureShape]),
     default=EnclosureShape.BULLET.value,
+)
+@click.option(
+    "--stage",
+    default="all",
+    help="Stage selection: all, stage_1, stage_2, up_to_2, or stage name.",
 )
 @click.option("--mach", type=float, default=0.8)
 @click.option("--alt", "altitude_m", type=float, default=500.0)
@@ -142,6 +154,7 @@ def convert(
     out_dir: Path | None,
     mode: str,
     shape: str,
+    stage: str,
     mach: float,
     altitude_m: float,
     aoa_deg: float,
@@ -161,7 +174,7 @@ def convert(
     iterations: int,
 ) -> None:
     """Convert an .ork file into STEP geometry, ANSYS scripts, and Workbench project."""
-    rocket = parse_ork_file(ork_file)
+    rocket = parse_ork_file(ork_file).select_stages(stage)
     target_dir = out_dir or (ork_file.parent / f"{sanitize_stem(rocket.name)}_cfd")
 
     cfg = PipelineConfig(
@@ -194,6 +207,7 @@ def convert(
             build_wbpj=wbpj,
             archive_wbpz=wbpz,
         ),
+        stage_selection=stage,
     )
 
     res = run_pipeline(
@@ -225,12 +239,19 @@ def convert(
 
 @main.command("calc-bl")
 @click.argument("ork_file", type=click.Path(exists=True, path_type=Path))
+@click.option("--stage", default="all", help="Stage selection: all, stage_1, stage_2, or name.")
 @click.option("--mach", type=float, default=0.8)
 @click.option("--alt", "altitude_m", type=float, default=500.0)
 @click.option("--yplus", "target_yplus", type=float, default=1.0)
-def calc_bl(ork_file: Path, mach: float, altitude_m: float, target_yplus: float) -> None:
+def calc_bl(
+    ork_file: Path,
+    stage: str,
+    mach: float,
+    altitude_m: float,
+    target_yplus: float,
+) -> None:
     """Calculate ISA conditions, Reynolds number, and y+ boundary-layer sizing."""
-    rocket = parse_ork_file(ork_file)
+    rocket = parse_ork_file(ork_file).select_stages(stage)
     fc = FlightCondition(mach=mach, altitude_m=altitude_m, target_yplus=target_yplus)
     bl = compute_boundary_layer(rocket, fc)
     rec = recommend_solver(rocket, fc)
@@ -260,12 +281,14 @@ def calc_bl(ork_file: Path, mach: float, altitude_m: float, target_yplus: float)
     type=click.Choice([s.value for s in EnclosureShape]),
     default=EnclosureShape.BULLET.value,
 )
+@click.option("--stage", default="all", help="Stage selection: all, stage_1, stage_2, or name.")
 @click.option("--open/--no-open", "open_browser", default=False, help="Open 3D HTML viewer.")
 def verify(
     input_file: Path,
     out_dir: Path | None,
     mode: str,
     shape: str,
+    stage: str,
     open_browser: bool,
 ) -> None:
     """Verify an .ork or .step CAD model and generate 3D HTML viewer & 4-view PNG."""
@@ -306,7 +329,7 @@ def verify(
             views_png_path=views_png,
         )
     else:
-        rocket = parse_ork_file(input_file)
+        rocket = parse_ork_file(input_file).select_stages(stage)
         target_dir = out_dir or (input_file.parent / f"{sanitize_stem(rocket.name)}_verify")
         cfg = PipelineConfig(
             domain=DomainConfig(mode=DomainMode(mode), shape=EnclosureShape(shape)),
@@ -317,6 +340,7 @@ def verify(
                 generate_scripts=False,
                 build_wbpj=False,
             ),
+            stage_selection=stage,
         )
         res = run_pipeline(
             ork_path=input_file,

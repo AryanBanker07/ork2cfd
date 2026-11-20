@@ -12,7 +12,7 @@ Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready
   - Automatically strips internal parts (bulkheads, centering rings, couplers, parachutes, motors).
   - Merges consecutive collinear body tubes into single smooth faces and fits curved nosecones/transitions (Haack / Von Kármán, Ogive, Ellipsoid, Parabolic, Power) to smooth B-splines.
   - Rotates the body revolution seam away from fin planes, embeds fin roots cleanly, blunts nose tips, and supports `square`, `rounded`, `airfoil`, and `double-wedge` fin profiles + cant.
-  - Exports full 3D Fluid Domain, Half Symmetry (180°), Sector Symmetry ($1/N_{\text{fins}}$), 2D Axisymmetric, or OML-only STEP files with embedded OCCT XCAF Named Selections (`farfield`, `inlet`, `outlet`, `symmetry`, `rocket_nosecone`, `rocket_body`, `rocket_boattail`, `rocket_fins`, `rocket_base`) and `boi_nearfield` / `boi_wake` solids.
+  - Exports full 3D Fluid Domain, Half Symmetry (180°), Sector Symmetry (`1/N_fins`, e.g., 90° quadrants), Half-Sector Mirror Symmetry (`1/(2×N_fins)`, e.g., 45°), 2D Axisymmetric, or OML-only STEP files with embedded OCCT XCAF Named Selections (`farfield`, `inlet`, `outlet`, `symmetry`, `rocket_nosecone`, `rocket_body`, `rocket_boattail`, `rocket_fins`, `rocket_base`) and `boi_nearfield` / `boi_wake` solids. Automatically detects multistage rockets and supports full-stack or per-stage selection (`--stage`).
 - **Multi-Region CFD `.stl` Export (Optional)**:
   - Export an ASCII `.stl` surface tessellation in SI meters with separate named solid regions (`solid <zone_name> ... endsolid <zone_name>`) for ANSYS Fluent Fault-Tolerant Meshing or OpenFOAM (`--stl` in CLI or GUI checkbox).
 - **Interactive 3D CAD Viewer & Automated Verification Pack**:

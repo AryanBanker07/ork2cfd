@@ -16,11 +16,13 @@ _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
 
 def _symmetry_multiplier(rocket: RocketModel, mode: DomainMode) -> float:
-    """Return domain reduction factor (1 for full, 2 for half, 2*N_fins for sector)."""
+    """Return domain reduction factor (1 full, 2 half, N_fins sector, 2*N_fins half-sector)."""
     if mode == DomainMode.SYMMETRY_HALF:
         return 2.0
     if mode == DomainMode.SYMMETRY_SECTOR:
-        return float(2 * max(1, rocket.dominant_fin_count))
+        return float(max(1, rocket.rotational_symmetry_order))
+    if mode == DomainMode.SYMMETRY_HALF_SECTOR:
+        return float(2 * max(1, rocket.rotational_symmetry_order))
     return 1.0
 
 

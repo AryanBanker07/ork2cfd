@@ -296,7 +296,14 @@ def _check_required_zones(
         if "outlet" not in zone_meshes:
             missing.append("outlet")
         if (
-            domain_config.mode in {DomainMode.SYMMETRY_HALF, DomainMode.SYMMETRY_SECTOR}
+            (
+                domain_config.mode == DomainMode.SYMMETRY_HALF
+                or (
+                    domain_config.mode
+                    in {DomainMode.SYMMETRY_SECTOR, DomainMode.SYMMETRY_HALF_SECTOR}
+                    and rocket.rotational_symmetry_order >= 2
+                )
+            )
             and "symmetry" not in zone_meshes
         ):
             missing.append("symmetry")
@@ -504,7 +511,11 @@ def verify_cad_model(
         )
 
         expected_r = 0.5 * rocket.max_fin_span_diameter
-        if mode in {DomainMode.SYMMETRY_HALF, DomainMode.SYMMETRY_SECTOR}:
+        if mode in {
+            DomainMode.SYMMETRY_HALF,
+            DomainMode.SYMMETRY_SECTOR,
+            DomainMode.SYMMETRY_HALF_SECTOR,
+        }:
             rad_ok = (0.85 * rocket.max_radius) <= oml_max_r <= (expected_r + 0.006)
             rad_status = "PASS" if rad_ok else "WARN"
             exp_desc = f"[{0.85 * rocket.max_radius:.4f}, {expected_r:.4f}] m (sector)"

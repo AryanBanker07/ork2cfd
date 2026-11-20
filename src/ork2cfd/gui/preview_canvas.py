@@ -100,6 +100,7 @@ class PreviewCanvas(ctk.CTkFrame):
         sym_modes = {
             DomainMode.SYMMETRY_HALF,
             DomainMode.SYMMETRY_SECTOR,
+            DomainMode.SYMMETRY_HALF_SECTOR,
             DomainMode.AXISYMMETRIC_2D,
         }
         # Top subplot: Fluid domain & BOIs
@@ -153,7 +154,11 @@ class PreviewCanvas(ctk.CTkFrame):
                 )
                 x_nf0 = -boi.nearfield_upstream_L * L
                 x_nf1 = (1.0 + boi.nearfield_downstream_L) * L
-                is_sym = domain_cfg.mode in {DomainMode.SYMMETRY_HALF, DomainMode.SYMMETRY_SECTOR}
+                is_sym = domain_cfg.mode in {
+                    DomainMode.SYMMETRY_HALF,
+                    DomainMode.SYMMETRY_SECTOR,
+                    DomainMode.SYMMETRY_HALF_SECTOR,
+                }
                 y_nf0 = 0.0 if is_sym else -r_nf
                 h_nf = r_nf if y_nf0 == 0.0 else 2.0 * r_nf
                 self.ax_dom.add_patch(
@@ -204,8 +209,23 @@ class PreviewCanvas(ctk.CTkFrame):
             self.ax_dom.set_xlim(-0.1 * L, 1.1 * L)
             r_lim = max(0.2, rocket.max_fin_span_diameter)
             self.ax_dom.set_ylim(-r_lim, r_lim)
+        n_sym = max(1, rocket.rotational_symmetry_order)
+        if domain_cfg.mode == DomainMode.SYMMETRY_SECTOR:
+            mode_desc = (
+                f"symmetry_sector ({360.0 / n_sym:.1f}° = 1/{n_sym})"
+                if n_sym >= 2
+                else "symmetry_sector (360°)"
+            )
+        elif domain_cfg.mode == DomainMode.SYMMETRY_HALF_SECTOR:
+            mode_desc = (
+                f"symmetry_half_sector ({180.0 / n_sym:.1f}° = 1/{2 * n_sym})"
+                if n_sym >= 2
+                else "symmetry_half_sector (360°)"
+            )
+        else:
+            mode_desc = domain_cfg.mode.value
         self.ax_dom.set_title(
-            f"Fluid Domain & BOIs ({domain_cfg.mode.value} / {domain_cfg.shape.value})",
+            f"Fluid Domain & BOIs ({mode_desc} / {domain_cfg.shape.value})",
             fontsize=10,
         )
         self.ax_dom.set_xlabel("X [m]", fontsize=8)
@@ -320,6 +340,24 @@ class PreviewCanvas(ctk.CTkFrame):
                         edgecolor="#fca5a5",
                         lw=0.8,
                     )
+                )
+
+        if show_legend and rocket.is_multistage:
+            y_lbl = max(0.06, 0.60 * rocket.max_fin_span_diameter)
+            for idx, st in enumerate(rocket.stages, start=1):
+                if idx < len(rocket.stages):
+                    ax.axvline(
+                        st.axial_end, color="#fbbf24", ls="--", lw=1.0, alpha=0.85
+                    )
+                ax.text(
+                    0.5 * (st.axial_start + st.axial_end),
+                    y_lbl,
+                    f"S{idx}: {st.name}",
+                    ha="center",
+                    va="top",
+                    color="#fbbf24",
+                    fontsize=7.5,
+                    fontweight="bold",
                 )
 
         if show_legend and seen_labels:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from ._curves import evaluate_profile_radius
@@ -234,8 +234,31 @@ class RocketModel:
         return tuple(fins)
 
     @property
-    def dominant_fin_count(self) -> int:
-        """GCD of all fin counts for symmetry sector compatibility (default 4 if none)."""
+    def stage_count(self) -> int:
+        """Number of axial stages in the rocket."""
+        return len(self.stages)
+
+    @property
+    def is_multistage(self) -> bool:
+        """Whether the rocket consists of more than one axial stage."""
+        return len(self.stages) > 1
+
+    @property
+    def stage_summaries(self) -> tuple[tuple[int, str, float, tuple[int, ...]], ...]:
+        """Return (1-based index, name, length_m, fin_counts) summary per stage."""
+        return tuple(
+            (
+                idx,
+                stage.name,
+                stage.length,
+                tuple(fin.fin_count for comp in stage.components for fin in comp.fins),
+            )
+            for idx, stage in enumerate(self.stages, start=1)
+        )
+
+    @property
+    def rotational_symmetry_order(self) -> int:
+        """GCD of all fin counts across active stages (default 4 if no fins)."""
         counts = [fin.fin_count for fin in self.all_fins if fin.fin_count > 0]
         if not counts:
             return 4
@@ -243,6 +266,108 @@ class RocketModel:
         for c in counts[1:]:
             g = math.gcd(g, c)
         return max(1, g)
+
+    @property
+    def dominant_fin_count(self) -> int:
+        """Backward-compatible alias for rotational_symmetry_order."""
+        return self.rotational_symmetry_order
+
+    @property
+    def has_sector_mirror_symmetry(self) -> bool:
+        """True if fin cant is zero and all fin sets align with the primary mirror planes."""
+        if self.has_cant:
+            return False
+        fins = self.all_fins
+        if len(fins) <= 1:
+            return True
+        n = self.rotational_symmetry_order
+        if n < 2:
+            return False
+        half_pitch = 180.0 / n
+        base_rot = fins[0].rotation_deg
+        for fin in fins[1:]:
+            rem = (fin.rotation_deg - base_rot) % half_pitch
+            if min(rem, half_pitch - rem) > 0.5:
+                return False
+        return True
+
+    def select_stages(self, selection: str = "all") -> RocketModel:
+        """Return a sub-model with selected stages and re-zeroed axial coordinates."""
+        sel = selection.strip().lower()
+        if sel in {"", "all"} or len(self.stages) <= 1:
+            return self
+
+        chosen: list[Stage]
+        n_stages = len(self.stages)
+        if sel == "sustainer":
+            chosen = [self.stages[0]]
+        elif sel.startswith("stage_") and sel[6:].isdigit():
+            k = int(sel[6:])
+            if not 1 <= k <= n_stages:
+                raise ValueError(f"Unknown stage index {k} for {n_stages}-stage rocket.")
+            chosen = [self.stages[k - 1]]
+        elif sel.isdigit():
+            k = int(sel)
+            if not 1 <= k <= n_stages:
+                raise ValueError(f"Unknown stage index {k} for {n_stages}-stage rocket.")
+            chosen = [self.stages[k - 1]]
+        elif sel.startswith("up_to_") and sel[6:].isdigit():
+            k = int(sel[6:])
+            if not 1 <= k <= n_stages:
+                raise ValueError(f"Unknown stage prefix count {k} for {n_stages}-stage rocket.")
+            chosen = list(self.stages[:k])
+        else:
+            matches = [st for st in self.stages if st.name.strip().lower() == sel]
+            if not matches:
+                raise ValueError(
+                    f"Unknown stage selection '{selection}' for {n_stages}-stage rocket."
+                )
+            chosen = [matches[0]]
+
+        offset = chosen[0].axial_start
+        shifted_stages: list[Stage] = []
+        for st in chosen:
+            new_comps: list[BodyComponent] = []
+            for comp in st.components:
+                new_fins = tuple(
+                    replace(
+                        fin,
+                        global_root_le_x=fin.global_root_le_x - offset,
+                        global_root_te_x=fin.global_root_te_x - offset,
+                    )
+                    for fin in comp.fins
+                )
+                new_rb = tuple(
+                    replace(rb, axial_x=rb.axial_x - offset) for rb in comp.rail_buttons
+                )
+                new_ll = tuple(
+                    replace(ll, axial_x=ll.axial_x - offset) for ll in comp.launch_lugs
+                )
+                new_comps.append(
+                    replace(
+                        comp,
+                        axial_start=comp.axial_start - offset,
+                        axial_end=comp.axial_end - offset,
+                        fins=new_fins,
+                        rail_buttons=new_rb,
+                        launch_lugs=new_ll,
+                    )
+                )
+            shifted_stages.append(
+                replace(
+                    st,
+                    components=tuple(new_comps),
+                    axial_start=st.axial_start - offset,
+                    axial_end=st.axial_end - offset,
+                )
+            )
+
+        return RocketModel(
+            name=self.name,
+            stages=tuple(shifted_stages),
+            source_path=self.source_path,
+            warnings=self.warnings,
+        )
 
     @property
     def has_cant(self) -> bool:

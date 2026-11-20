@@ -154,6 +154,19 @@ def _build_manifest_dict(
         "step_schema": cad_config.step_schema,
         "domain_mode": domain_config.mode.value,
         "enclosure_shape": domain_config.shape.value,
+        "stage_count": rocket.stage_count,
+        "is_multistage": rocket.is_multistage,
+        "rotational_symmetry_order": rocket.rotational_symmetry_order,
+        "stages": [
+            {
+                "index": idx,
+                "name": st.name,
+                "axial_start_m": round(st.axial_start, 6),
+                "axial_end_m": round(st.axial_end, 6),
+                "fin_counts": [f.fin_count for c in st.components for f in c.fins],
+            }
+            for idx, st in enumerate(rocket.stages, start=1)
+        ],
         "rocket_total_length_m": round(rocket.total_length, 6),
         "rocket_max_diameter_m": round(rocket.max_diameter, 6),
         "rocket_reference_area_m2": round(rocket.reference_area, 8),

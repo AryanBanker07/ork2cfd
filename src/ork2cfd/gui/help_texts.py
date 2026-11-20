@@ -19,11 +19,25 @@ HELP_TEXTS: dict[str, HelpEntry] = {
         title="OpenRocket (.ork) Input & OML Filtering",
         body=(
             "Loads plain XML, ZIP-compressed, or GZIP-compressed OpenRocket (.ork) files.\n\n"
+            "• Automatic Multistage Detection: Reads all axial stages (e.g., Sustainer + "
+            "Booster) and computes the true GCD rotational symmetry order across all fin sets.\n"
             "• External OML Only: Internal structural parts (bulkheads, centering rings, tube "
             "couplers, inner motor tubes, parachutes, shock cords, and mass components) are "
             "automatically stripped so the fluid mesh has zero internal cavities.\n"
             "• Multi-Tube Merging: Equal-radius body tubes are collapsed into a single smooth "
             "cylinder to eliminate artificial seam rings in Fluent Meshing."
+        ),
+    ),
+    "stage_selection": HelpEntry(
+        title="Multistage Configuration Selector",
+        body=(
+            "Automatically detects multistage vehicles (e.g., Sustainer + Booster) in the "
+            "loaded .ork file and lets you choose which flight configuration to simulate:\n\n"
+            "• All Stages: Full-stack liftoff configuration combining every axial stage. Per-stage "
+            "fin sets share rotational symmetry via GCD (e.g., 2 stages × 4 fins = 4-fold "
+            "rotational symmetry → 90° quadrants, NOT 8).\n"
+            "• Stage 1 / Stage 2 / Up to K: Isolates a specific upper stage or post-separation "
+            "vehicle and re-zeros its axial X coordinate to 0.0 m."
         ),
     ),
     "sec_physics": HelpEntry(
@@ -155,11 +169,14 @@ HELP_TEXTS: dict[str, HelpEntry] = {
         body=(
             "Selects how the rocket OML and surrounding fluid volume are built in STEP:\n\n"
             "• fluid_domain: Full 360° farfield enclosure minus rocket OML. Required if fins "
-            "have non-zero cant or full-vehicle asymmetry.\n"
+            "have full-vehicle asymmetry.\n"
             "• symmetry_half: Cuts domain at z ≥ 0 (180°). Halves cell count while still "
             "supporting non-zero Angle of Attack (α ≠ 0) in the X–Y pitch plane.\n"
-            "• symmetry_sector: Pie wedge θ ∈ [0, π/N_fins]. Cuts cells by 2×N_fins (e.g. "
-            "8× fewer for 4 fins!). Valid ONLY for α = 0° and zero fin cant.\n"
+            "• symmetry_sector: 1/N_fins sector (360°/N_fins, e.g. 90° quadrant = 4 sectors for "
+            "4 fins per stage). Keeps 1 complete fin per stage intact and cuts through open air.\n"
+            "• symmetry_half_sector: Minimal 1/(2×N_fins) mirror wedge (180°/N_fins, e.g. "
+            "45° = 8 wedges for 4 fins), slicing along a fin centerplane. Valid ONLY for α = 0° "
+            "and aligned zero-cant fins.\n"
             "• axisymmetric_2d: Planar X–Y (y ≥ 0) fluid face without 3D fins.\n"
             "• oml_only: Exports only the closed rocket solid (build your own wind tunnel)."
         ),

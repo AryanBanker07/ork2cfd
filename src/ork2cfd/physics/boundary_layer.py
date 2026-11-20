@@ -125,7 +125,9 @@ def _estimate_cell_count(
     if domain_mode == DomainMode.SYMMETRY_HALF:
         sector_scale = 0.5
     elif domain_mode == DomainMode.SYMMETRY_SECTOR:
-        sector_scale = 1.0 / (2.0 * max(1, rocket.dominant_fin_count))
+        sector_scale = 1.0 / max(1, rocket.rotational_symmetry_order)
+    elif domain_mode == DomainMode.SYMMETRY_HALF_SECTOR:
+        sector_scale = 1.0 / (2.0 * max(1, rocket.rotational_symmetry_order))
 
     d = max(0.02, rocket.max_diameter)
     l_tot = max(0.1, rocket.total_length)

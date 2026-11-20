@@ -76,9 +76,9 @@ def build_cfd_domain(
     seam_deg = None
     if mode == DomainMode.SYMMETRY_HALF:
         seam_deg = -90.0
-    elif mode == DomainMode.SYMMETRY_SECTOR:
+    elif mode in {DomainMode.SYMMETRY_SECTOR, DomainMode.SYMMETRY_HALF_SECTOR}:
         first_rot = rocket.all_fins[0].rotation_deg if rocket.all_fins else 0.0
-        seam_deg = first_rot - 90.0
+        seam_deg = first_rot + 180.0
 
     oml_out = build_rocket_oml(rocket, cad_config, seam_angle_deg=seam_deg)
     warnings.extend(oml_out.warnings)
@@ -148,19 +148,44 @@ def build_cfd_domain(
             gp_Pnt(x_min_mm - 500.0, -r_far_mm - 500.0, 0.0),
             gp_Pnt(x_max_mm + 500.0, r_far_mm + 500.0, r_far_mm + 500.0),
         ).Shape()
-    elif mode == DomainMode.SYMMETRY_SECTOR:
-        if rocket.has_cant:
-            warnings.append("Fin cant is incompatible with strict Symmetry Sector.")
-        n_fins = max(1, rocket.dominant_fin_count)
-        sector_angle_rad = math.pi / n_fins
-        first_rot = rocket.all_fins[0].rotation_deg if rocket.all_fins else 0.0
-        clip_solid = _build_sector_wedge_mm(
-            x_min_mm=x_min_mm - 500.0,
-            x_max_mm=x_max_mm + 500.0,
-            r_outer_mm=r_far_mm + 500.0,
-            start_angle_deg=first_rot,
-            sweep_angle_rad=sector_angle_rad,
-        )
+    elif mode in {DomainMode.SYMMETRY_SECTOR, DomainMode.SYMMETRY_HALF_SECTOR}:
+        n_sym = rocket.rotational_symmetry_order
+        if n_sym <= 1:
+            warnings.append(
+                "Incompatible fin counts across stages (rotational symmetry order = 1); "
+                "keeping full 360° fluid domain."
+            )
+        else:
+            first_rot = rocket.all_fins[0].rotation_deg if rocket.all_fins else 0.0
+            if mode == DomainMode.SYMMETRY_SECTOR:
+                if rocket.has_cant:
+                    warnings.append(
+                        "Fin cant breaks bilateral mirror symmetry; use rotational-periodic "
+                        "BCs on sector cut planes in Fluent."
+                    )
+                elif not rocket.has_sector_mirror_symmetry:
+                    warnings.append(
+                        "Inter-stage fin rotation offset breaks bilateral mirror symmetry; "
+                        "use rotational-periodic BCs on sector cut planes."
+                    )
+                start_angle_deg = first_rot - (180.0 / n_sym)
+                sector_angle_rad = (2.0 * math.pi) / n_sym
+            else:
+                if rocket.has_cant or not rocket.has_sector_mirror_symmetry:
+                    warnings.append(
+                        "Fin cant or inter-stage fin stagger is incompatible with "
+                        "half-sector mirror symmetry."
+                    )
+                start_angle_deg = first_rot
+                sector_angle_rad = math.pi / n_sym
+
+            clip_solid = _build_sector_wedge_mm(
+                x_min_mm=x_min_mm - 500.0,
+                x_max_mm=x_max_mm + 500.0,
+                r_outer_mm=r_far_mm + 500.0,
+                start_angle_deg=start_angle_deg,
+                sweep_angle_rad=sector_angle_rad,
+            )
 
     if clip_solid is not None:
         common = BRepAlgoAPI_Common(fluid_shape, clip_solid)
@@ -587,7 +612,12 @@ def _classify_outer_or_symmetry_face(
         if abs(n.X()) > 0.95 and abs(cx - x_min_mm) < 10.0:
             return "inlet"
         if (
-            mode in {DomainMode.SYMMETRY_HALF, DomainMode.SYMMETRY_SECTOR}
+            mode
+            in {
+                DomainMode.SYMMETRY_HALF,
+                DomainMode.SYMMETRY_SECTOR,
+                DomainMode.SYMMETRY_HALF_SECTOR,
+            }
             and abs(n.X()) < 0.05
             and r_max_surf > 0.70 * r_far_mm
             and (xmax - xmin) > max(L_mm, 0.5 * r_far_mm)

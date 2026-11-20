@@ -111,7 +111,7 @@ def test_preview_figure_render_offscreen(synthetic_ork_file: Path) -> None:
 def test_help_texts_complete() -> None:
     """Verify every GUI section and control option has a thorough help entry."""
     expected_keys = {
-        "sec_input", "sec_physics", "sec_cad", "sec_deliverables",
+        "sec_input", "stage_selection", "sec_physics", "sec_cad", "sec_deliverables",
         "mach", "altitude", "aoa", "yplus", "regime", "mesh_preset", "cores", "iterations",
         "domain_mode", "enclosure_shape", "blunt_radius", "step_schema",
         "include_bois", "fin_fillets", "rail_buttons", "launch_lugs",
@@ -135,7 +135,7 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 26
+        assert len(app._info_icons) == 27
         assert app.btn_view_cad is not None
         app.var_out_dir.set(str(tmp_path / "gui_out"))
         cfg = app._collect_config()
@@ -204,3 +204,30 @@ def test_cli_convert_with_stl(synthetic_ork_file: Path, tmp_path: Path) -> None:
     assert (out_dir / "TestRocket_cfd.step").exists()
     assert (out_dir / "TestRocket_cfd.stl").exists()
     assert "STL:" in res.output
+
+
+def test_cli_verify_multistage_stage_selection(tmp_path: Path) -> None:
+    sample_ork = Path("sample orks/banana3.ork")
+    if not sample_ork.exists():
+        return
+    runner = CliRunner()
+    out_dir = tmp_path / "banana3_s1"
+    res = runner.invoke(
+        cli_main,
+        [
+            "verify",
+            str(sample_ork),
+            "-o",
+            str(out_dir),
+            "--stage",
+            "stage_1",
+            "--mode",
+            "symmetry_sector",
+            "--shape",
+            "bullet",
+        ],
+    )
+    assert res.exit_code == 0
+    assert (out_dir / "Banana3_stage_1_cfd.step").exists()
+    assert (out_dir / "Banana3_stage_1_cad_viewer.html").exists()
+    assert (out_dir / "Banana3_stage_1_verification.json").exists()

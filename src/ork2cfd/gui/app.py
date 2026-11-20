@@ -66,6 +66,8 @@ class Ork2CfdApp(ctk.CTk):
 
     def _init_vars(self) -> None:
         self.var_ork_path = ctk.StringVar(value="")
+        self.var_stage = ctk.StringVar(value="All Stages")
+        self._stage_label_to_key: dict[str, str] = {"All Stages": "all"}
         self.var_out_dir = ctk.StringVar(value="")
 
         self.var_mach = ctk.StringVar(value="0.80")
@@ -223,6 +225,19 @@ class Ork2CfdApp(ctk.CTk):
             text_color="#94a3b8",
         )
         self.lbl_rocket_summary.grid(row=1, column=0, columnspan=2, sticky="ew")
+
+        self.cmb_stage = add_labeled_combo(
+            card.body,
+            2,
+            0,
+            "Stage Configuration",
+            ["All Stages"],
+            self.var_stage,
+            self._on_stage_change,
+            help_key="stage_selection",
+            icon_registry=self._info_icons,
+        )
+        self.cmb_stage.master.grid_configure(columnspan=2)
 
     def _build_physics_card(self, parent, row: int) -> None:
         card = SectionCard(
@@ -399,6 +414,46 @@ class Ork2CfdApp(ctk.CTk):
         if path:
             self.var_out_dir.set(path)
 
+    def _selected_stage_key(self) -> str:
+        return self._stage_label_to_key.get(self.var_stage.get(), "all")
+
+    def _active_rocket(self) -> RocketModel | None:
+        if self._rocket is None:
+            return None
+        return self._rocket.select_stages(self._selected_stage_key())
+
+    def _on_stage_change(self, _value: str | None = None) -> None:
+        self._update_rocket_summary()
+        self._refresh_calculations()
+
+    def _update_rocket_summary(self) -> None:
+        active = self._active_rocket()
+        if self._rocket is None or active is None:
+            return
+        n_sym = active.rotational_symmetry_order
+        if active.is_multistage:
+            stage_desc = ", ".join(
+                f"S{idx}:{name}({'+'.join(str(c) for c in fcs) or '0'} fins)"
+                for idx, name, _length, fcs in active.stage_summaries
+            )
+            stage_hdr = f"{active.stage_count} Stages [{stage_desc}]"
+        else:
+            stage_hdr = f"1 Stage ({active.stages[0].name})" if active.stages else "0 Stages"
+        fins_txt = ", ".join(
+            f"{f.fin_count}x {f.fin_type} ({f.cross_section.value})" for f in active.all_fins
+        ) or "None"
+        summary = (
+            f"Name: {active.name} | {stage_hdr} | Components: {len(active.all_components)}\n"
+            f"L = {active.total_length:.3f} m | D_max = {active.max_diameter*1000:.1f} mm | "
+            f"A_ref = {active.reference_area:.5f} m²\n"
+            f"Symmetry: {n_sym}-fold ({360.0 / n_sym:.0f}° sector / "
+            f"{180.0 / n_sym:.0f}° half) | Fins: {fins_txt}"
+        )
+        self.lbl_rocket_summary.configure(
+            text=summary,
+            text_color=("#e2e8f0" if self.var_dark.get() else "#0f172a"),
+        )
+
     def _load_ork(self, ork_path: Path) -> None:
         try:
             rocket = parse_ork_file(ork_path)
@@ -412,22 +467,29 @@ class Ork2CfdApp(ctk.CTk):
         if not self.var_out_dir.get():
             self.var_out_dir.set(str(ork_path.parent / f"{stem}_cfd"))
 
-        fins_txt = ", ".join(
-            f"{f.fin_count}x {f.fin_type} ({f.cross_section.value})" for f in rocket.all_fins
-        ) or "None"
-        summary = (
-            f"Name: {rocket.name} | Stages: {len(rocket.stages)} | "
-            f"Components: {len(rocket.all_components)}\n"
-            f"L = {rocket.total_length:.3f} m | D_max = {rocket.max_diameter*1000:.1f} mm | "
-            f"A_ref = {rocket.reference_area:.5f} m²\n"
-            f"Fins: {fins_txt} | Finish: {rocket.dominant_finish.value}"
-        )
-        self.lbl_rocket_summary.configure(
-            text=summary,
-            text_color=("#e2e8f0" if self.var_dark.get() else "#0f172a"),
-        )
+        label_map: dict[str, str] = {}
+        if rocket.is_multistage:
+            top_lbl = f"All Stages ({rocket.stage_count}-Stage Stack)"
+            label_map[top_lbl] = "all"
+            for idx, sname, slen, fcs in rocket.stage_summaries:
+                fin_str = "+".join(str(c) for c in fcs) if fcs else "0"
+                st_lbl = f"Stage {idx}: {sname} ({slen:.2f}m, {fin_str} fins)"
+                label_map[st_lbl] = f"stage_{idx}"
+            for k in range(2, rocket.stage_count):
+                label_map[f"Stages 1..{k}"] = f"up_to_{k}"
+        else:
+            label_map["All Stages (Single Stage)"] = "all"
+
+        self._stage_label_to_key = label_map
+        labels = list(label_map.keys())
+        self.cmb_stage.configure(values=labels)
+        self.var_stage.set(labels[0])
+
+        self._update_rocket_summary()
         self._append_log(
-            f"[OK] Loaded {ork_path.name} ({rocket.name}, L={rocket.total_length:.3f}m)."
+            f"[OK] Loaded {ork_path.name} ({rocket.name}, "
+            f"stages={rocket.stage_count}, sym={rocket.rotational_symmetry_order}-fold, "
+            f"L={rocket.total_length:.3f}m)."
         )
         for w in rocket.warnings:
             self._append_log(f"[WARN] {w}")
@@ -476,14 +538,21 @@ class Ork2CfdApp(ctk.CTk):
             build_wbpj=self.var_wbpj.get(),
             archive_wbpz=self.var_wbpz.get(),
         )
-        return PipelineConfig(cad=cad, domain=domain, flight=flight, deliverables=deliverables)
+        return PipelineConfig(
+            cad=cad,
+            domain=domain,
+            flight=flight,
+            deliverables=deliverables,
+            stage_selection=self._selected_stage_key(),
+        )
 
     def _refresh_calculations(self) -> None:
-        if self._rocket is None:
+        active = self._active_rocket()
+        if active is None:
             return
         cfg = self._collect_config()
-        bl = compute_boundary_layer(self._rocket, cfg.flight, cfg.domain.mode)
-        rec = recommend_solver(self._rocket, cfg.flight)
+        bl = compute_boundary_layer(active, cfg.flight, cfg.domain.mode)
+        rec = recommend_solver(active, cfg.flight)
 
         student_tag = " [>512k Student Limit!]" if bl.exceeds_student_limit else ""
         text = (
@@ -497,7 +566,7 @@ class Ork2CfdApp(ctk.CTk):
             text=text,
             text_color=("#fbbf24" if bl.exceeds_student_limit else "#38bdf8"),
         )
-        self.preview.update_preview(self._rocket, cfg.domain, rec)
+        self.preview.update_preview(active, cfg.domain, rec)
 
     def _on_generate(self) -> None:
         if self._is_running:

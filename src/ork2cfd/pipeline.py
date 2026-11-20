@@ -46,8 +46,12 @@ def run_pipeline(
             progress_callback(msg, frac)
 
     _emit(f"Parsing OpenRocket file: {ork_path.name}...", 0.08)
-    rocket = parse_ork_file(ork_path)
+    parsed_rocket = parse_ork_file(ork_path)
+    rocket = parsed_rocket.select_stages(cfg.stage_selection)
     stem = sanitize_stem(rocket.name)
+    stage_key = cfg.stage_selection.strip().lower()
+    if stage_key not in {"", "all"} and parsed_rocket.is_multistage:
+        stem = f"{stem}_{sanitize_stem(stage_key)}"
     warnings: list[str] = list(rocket.warnings)
 
     _emit("Computing ISA atmosphere, y+ boundary layer, and solver settings...", 0.18)

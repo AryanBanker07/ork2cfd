@@ -86,7 +86,25 @@ def test_generated_scripts_syntax_and_physics(
 
     run_src = scripts["run_fluent.py"].read_text(encoding="utf-8")
     assert f'SOLVER_TYPE = "{expected_solver}"' in run_src
-    assert "SYM_FACTOR = 8.0" in run_src
+    assert "SYM_FACTOR = 4.0" in run_src
+
+    cfg_half_sec = PipelineConfig(
+        domain=DomainConfig(mode=DomainMode.SYMMETRY_HALF_SECTOR),
+        flight=cfg.flight,
+        deliverables=cfg.deliverables,
+    )
+    scripts_hs = generate_ansys_scripts(
+        output_dir=tmp_path / "half_sector",
+        stem="TestRocket",
+        rocket=rocket,
+        config=cfg_half_sec,
+        bl=compute_boundary_layer(rocket, cfg_half_sec.flight, cfg_half_sec.domain.mode),
+        solver_rec=rec,
+        step_path=step_p,
+        manifest_path=man_p,
+        ansys_install=fake_install,
+    )
+    assert "SYM_FACTOR = 8.0" in scripts_hs["run_fluent.py"].read_text(encoding="utf-8")
 
     wbjn_src = scripts["create_project.wbjn"].read_text(encoding="utf-8")
     assert 'SetScriptVersion(Version="25.2.170")' in wbjn_src
