@@ -103,6 +103,7 @@ class DeliverableConfig:
     """Output deliverables requested from the ork2cfd pipeline."""
 
     export_step: bool = True
+    export_rocket_step: bool = True
     export_stl: bool = False
     export_verification: bool = True
     generate_scripts: bool = True

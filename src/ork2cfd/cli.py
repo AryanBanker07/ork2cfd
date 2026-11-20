@@ -142,6 +142,12 @@ def inspect(ork_file: Path) -> None:
 @click.option("--fillets/--no-fillets", default=False)
 @click.option("--rail-buttons/--no-rail-buttons", default=False)
 @click.option("--launch-lugs/--no-launch-lugs", default=False)
+@click.option("--step/--no-step", default=True, help="Export CFD fluid domain .step (m).")
+@click.option(
+    "--rocket-step/--no-rocket-step",
+    default=True,
+    help="Also export standalone rocket-only .step with per-component Named Selections.",
+)
 @click.option("--stl/--no-stl", default=False, help="Export multi-region ASCII STL mesh (m).")
 @click.option(
     "--verify/--no-verify",
@@ -169,6 +175,8 @@ def convert(
     fillets: bool,
     rail_buttons: bool,
     launch_lugs: bool,
+    step: bool,
+    rocket_step: bool,
     stl: bool,
     verify: bool,
     wbpj: bool,
@@ -203,12 +211,13 @@ def convert(
             iterations=iterations,
         ),
         deliverables=DeliverableConfig(
-            export_step=True,
+            export_step=step,
+            export_rocket_step=rocket_step,
             export_stl=stl,
             export_verification=verify,
-            generate_scripts=True,
-            build_wbpj=wbpj,
-            archive_wbpz=wbpz,
+            generate_scripts=step,
+            build_wbpj=wbpj and step,
+            archive_wbpz=wbpz and step,
         ),
         stage_selection=stage,
     )
@@ -222,6 +231,8 @@ def convert(
     console.print(f"\n[bold green]Done![/] CFD package saved to: {res.output_dir}")
     if res.step_path:
         console.print(f"  STEP:      {res.step_path.name}")
+    if res.rocket_step_path:
+        console.print(f"  Rocket:    {res.rocket_step_path.name}")
     if res.stl_path:
         console.print(f"  STL:       {res.stl_path.name}")
     if res.viewer_html_path:
@@ -359,6 +370,7 @@ def verify(
             domain=DomainConfig(mode=DomainMode(mode), shape=EnclosureShape(shape)),
             deliverables=DeliverableConfig(
                 export_step=True,
+                export_rocket_step=False,
                 export_stl=False,
                 export_verification=True,
                 generate_scripts=False,

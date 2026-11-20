@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from OCP.Bnd import Bnd_Box
@@ -31,8 +32,8 @@ from ..exceptions import GeometryBuildError
 from ..models.cfd import CadConfig, DomainConfig, DomainMode, EnclosureShape
 from ..models.results import GeometryReport, SolverRecommendation
 from ..models.rocket import RocketModel
-from .oml_builder import build_axisymmetric_2d_body_face_mm, build_rocket_oml
-from .profiles import SCALE_M_TO_MM, ProfileSegmentMeta
+from .oml_builder import OmlBuildOutput, build_axisymmetric_2d_body_face_mm, build_rocket_oml
+from .profiles import SCALE_M_TO_MM, ProfileSegmentMeta, sanitize_zone_name, stage_zone_token
 from .validator import validate_brep_shape
 
 
@@ -57,6 +58,81 @@ class DomainBuildOutput:
     report: GeometryReport
     bbox_domain_min_m: tuple[float, float, float]
     bbox_domain_max_m: tuple[float, float, float]
+
+
+_GENERIC_FIN_NAMES = frozenset(
+    {
+        "trapezoidal_fin_set",
+        "elliptical_fin_set",
+        "freeform_fin_set",
+        "tube_fin_set",
+        "fin_set",
+    }
+)
+
+
+def _wrap_oml_domain_output(
+    oml_out: OmlBuildOutput,
+    faces: list[FaceZoneEntry],
+    rocket: RocketModel,
+    warnings: list[str],
+) -> DomainBuildOutput:
+    """Package an OML solid and its classified faces into a DomainBuildOutput."""
+    zone_counts = _count_zones(faces)
+    report = GeometryReport(
+        is_valid=oml_out.oml_stats.is_valid,
+        is_watertight=oml_out.oml_stats.is_watertight,
+        solid_count=oml_out.oml_stats.solid_count,
+        free_edge_count=oml_out.oml_stats.free_edge_count,
+        min_edge_length_m=oml_out.oml_stats.min_edge_length_m,
+        sliver_face_count=oml_out.oml_stats.sliver_face_count,
+        oml_volume_m3=oml_out.oml_stats.volume_m3,
+        oml_wetted_area_m2=oml_out.oml_stats.surface_area_m2,
+        oml_frontal_area_m2=rocket.reference_area,
+        domain_volume_m3=oml_out.oml_stats.volume_m3,
+        bbox_min_m=oml_out.oml_stats.bbox_min_m,
+        bbox_max_m=oml_out.oml_stats.bbox_max_m,
+        named_selections=zone_counts,
+        boi_names=(),
+        warnings=tuple(warnings),
+    )
+    return DomainBuildOutput(
+        main_shape=oml_out.oml_shape,
+        main_name="rocket_oml",
+        boi_solids=(),
+        face_zones=tuple(faces),
+        report=report,
+        bbox_domain_min_m=oml_out.oml_stats.bbox_min_m,
+        bbox_domain_max_m=oml_out.oml_stats.bbox_max_m,
+    )
+
+
+def build_rocket_component_domain(
+    rocket: RocketModel,
+    cad_config: CadConfig,
+) -> DomainBuildOutput:
+    """Build watertight rocket-only B-Rep with distinct per-component Named Selections."""
+    oml_out = build_rocket_oml(rocket, cad_config, preserve_component_faces=True)
+    fin_intervals = _build_fin_zone_intervals(rocket)
+    app_intervals = _build_appendage_intervals(rocket, cad_config)
+    L_mm = rocket.total_length * SCALE_M_TO_MM
+
+    faces = _classify_oml_faces(
+        oml_out.oml_shape,
+        rocket,
+        lambda face, cx, r_max_surf, max_excess: _classify_component_rocket_face(
+            face=face,
+            cx=cx,
+            r_max_surf=r_max_surf,
+            max_excess_mm=max_excess,
+            L_mm=L_mm,
+            rocket=rocket,
+            segment_meta=oml_out.segment_meta,
+            fin_intervals=fin_intervals,
+            app_intervals=app_intervals,
+        ),
+    )
+    return _wrap_oml_domain_output(oml_out, faces, rocket, list(oml_out.warnings))
 
 
 def build_cfd_domain(
@@ -84,34 +160,15 @@ def build_cfd_domain(
     warnings.extend(oml_out.warnings)
 
     if mode == DomainMode.OML_ONLY:
-        faces = _classify_oml_only_faces(oml_out.oml_shape, rocket, oml_out.segment_meta)
-        zone_counts = _count_zones(faces)
-        report = GeometryReport(
-            is_valid=oml_out.oml_stats.is_valid,
-            is_watertight=oml_out.oml_stats.is_watertight,
-            solid_count=oml_out.oml_stats.solid_count,
-            free_edge_count=oml_out.oml_stats.free_edge_count,
-            min_edge_length_m=oml_out.oml_stats.min_edge_length_m,
-            sliver_face_count=oml_out.oml_stats.sliver_face_count,
-            oml_volume_m3=oml_out.oml_stats.volume_m3,
-            oml_wetted_area_m2=oml_out.oml_stats.surface_area_m2,
-            oml_frontal_area_m2=rocket.reference_area,
-            domain_volume_m3=oml_out.oml_stats.volume_m3,
-            bbox_min_m=oml_out.oml_stats.bbox_min_m,
-            bbox_max_m=oml_out.oml_stats.bbox_max_m,
-            named_selections=zone_counts,
-            boi_names=(),
-            warnings=tuple(warnings),
+        L_mm = rocket.total_length * SCALE_M_TO_MM
+        faces = _classify_oml_faces(
+            oml_out.oml_shape,
+            rocket,
+            lambda face, cx, r_max_surf, max_excess: _classify_rocket_wall_face(
+                face, cx, r_max_surf, max_excess, L_mm, rocket, oml_out.segment_meta
+            ),
         )
-        return DomainBuildOutput(
-            main_shape=oml_out.oml_shape,
-            main_name="rocket_oml",
-            boi_solids=(),
-            face_zones=tuple(faces),
-            report=report,
-            bbox_domain_min_m=oml_out.oml_stats.bbox_min_m,
-            bbox_domain_max_m=oml_out.oml_stats.bbox_max_m,
-        )
+        return _wrap_oml_domain_output(oml_out, faces, rocket, warnings)
 
     # Compute enclosure dimensions in mm
     L_m = rocket.total_length
@@ -509,13 +566,12 @@ def _face_metrics(
     return (c.X(), c.Y(), c.Z()), area, box.Get(), r_max, max_excess
 
 
-def _classify_oml_only_faces(
+def _classify_oml_faces(
     oml_shape: TopoDS_Shape,
     rocket: RocketModel,
-    segment_meta: tuple[ProfileSegmentMeta, ...],
+    zone_fn: Callable[[TopoDS_Face, float, float, float], str],
 ) -> list[FaceZoneEntry]:
-    """Classify all faces on an OML-only solid into rocket aerodynamic wall zones."""
-    L_mm = rocket.total_length * SCALE_M_TO_MM
+    """Classify all faces on an OML solid using a per-face classifier callback."""
     inv_s = 1.0 / SCALE_M_TO_MM
     entries: list[FaceZoneEntry] = []
 
@@ -523,9 +579,7 @@ def _classify_oml_only_faces(
     while exp.More():
         face = TopoDS.Face_s(exp.Current())
         (cx, cy, cz), area_mm2, _bbox, r_max_surf, max_excess = _face_metrics(face, rocket)
-        zone = _classify_rocket_wall_face(
-            face, cx, r_max_surf, max_excess, L_mm, rocket, segment_meta
-        )
+        zone = zone_fn(face, cx, r_max_surf, max_excess)
         entries.append(
             FaceZoneEntry(
                 face=face,
@@ -536,6 +590,149 @@ def _classify_oml_only_faces(
         )
         exp.Next()
     return entries
+
+
+def _build_fin_zone_intervals(rocket: RocketModel) -> list[tuple[float, float, str]]:
+    """Build axial (x_lo_m, x_hi_m, zone_name) envelopes for every FinSet across stages."""
+    multi_or_many = rocket.is_multistage or len(rocket.all_fins) > 1
+    entries: list[tuple[float, float, str, str]] = []
+    raw_counts: dict[str, int] = {}
+
+    for st_idx, stage in enumerate(rocket.stages, start=1):
+        st_tok = stage_zone_token(stage.name, st_idx)
+        for comp in stage.components:
+            for fin in comp.fins:
+                if fin.fin_type == "freeform" and fin.points:
+                    xs = [fin.global_root_le_x + px for px, _ in fin.points]
+                    x_lo = min(xs)
+                    x_hi = max(xs)
+                else:
+                    tip_le = fin.global_root_le_x + fin.sweep_length
+                    tip_te = tip_le + fin.tip_chord
+                    x_lo = min(fin.global_root_le_x, tip_le)
+                    x_hi = max(fin.global_root_te_x, tip_te)
+
+                raw = sanitize_zone_name(fin.name, "fins")
+                if raw in _GENERIC_FIN_NAMES:
+                    base = f"{st_tok}_fins" if multi_or_many else "fins"
+                else:
+                    base = raw
+                raw_counts[base] = raw_counts.get(base, 0) + 1
+                entries.append((x_lo, x_hi, st_tok, base))
+
+    candidates: list[tuple[float, float, str]] = []
+    cand_counts: dict[str, int] = {}
+    for x_lo, x_hi, st_tok, base in entries:
+        name = (
+            f"{st_tok}_{base}"
+            if raw_counts[base] > 1 and not base.startswith(f"{st_tok}_")
+            else base
+        )
+        candidates.append((x_lo, x_hi, name))
+        cand_counts[name] = cand_counts.get(name, 0) + 1
+
+    seen: dict[str, int] = {}
+    resolved: list[tuple[float, float, str]] = []
+    for x_lo, x_hi, name in candidates:
+        if cand_counts[name] == 1:
+            resolved.append((x_lo, x_hi, name))
+        else:
+            idx = seen.get(name, 0) + 1
+            seen[name] = idx
+            resolved.append((x_lo, x_hi, f"{name}_{idx}"))
+    return resolved
+
+
+def _build_appendage_intervals(
+    rocket: RocketModel,
+    cad_config: CadConfig,
+) -> list[tuple[float, float, str]]:
+    """Build axial intervals for enabled external rail buttons and launch lugs."""
+    intervals: list[tuple[float, float, str]] = []
+    if cad_config.include_rail_buttons:
+        for comp in rocket.all_components:
+            for rb in comp.rail_buttons:
+                half_r = max(0.002, 0.5 * rb.outer_diameter)
+                for idx in range(max(1, rb.instance_count)):
+                    xm = rb.axial_x + idx * rb.instance_separation
+                    intervals.append((xm - half_r, xm + half_r, "rail_buttons"))
+    if cad_config.include_launch_lugs:
+        for comp in rocket.all_components:
+            for lug in comp.launch_lugs:
+                for idx in range(max(1, lug.instance_count)):
+                    xm = lug.axial_x + idx * lug.instance_separation
+                    intervals.append((xm, xm + max(0.004, lug.length), "launch_lugs"))
+    return intervals
+
+
+def _match_axial_interval(
+    cx_m: float,
+    intervals: list[tuple[float, float, str]],
+    tol_m: float,
+) -> str | None:
+    """Return zone name of the best-matching axial interval within tol_m."""
+    hits = [
+        (abs(cx_m - 0.5 * (x0 + x1)), name)
+        for x0, x1, name in intervals
+        if x0 - tol_m <= cx_m <= x1 + tol_m
+    ]
+    if not hits:
+        return None
+    hits.sort(key=lambda item: item[0])
+    return hits[0][1]
+
+
+def _classify_component_rocket_face(
+    face: TopoDS_Face,
+    cx: float,
+    r_max_surf: float,
+    max_excess_mm: float,
+    L_mm: float,
+    rocket: RocketModel,
+    segment_meta: tuple[ProfileSegmentMeta, ...],
+    fin_intervals: list[tuple[float, float, str]],
+    app_intervals: list[tuple[float, float, str]],
+) -> str:
+    """Classify an OML face into per-component body, fin-set, appendage, or cap zones."""
+    cx_m = cx / SCALE_M_TO_MM
+    r_body_mm = rocket.radius_at_x(max(0.0, min(rocket.total_length, cx_m))) * SCALE_M_TO_MM
+
+    surf = BRepAdaptor_Surface(face)
+    if surf.GetType() == GeomAbs_Plane:
+        n = surf.Plane().Axis().Direction()
+        if abs(n.X()) > 0.95 and r_max_surf <= r_body_mm + 2.0:
+            if abs(cx - L_mm) < 2.0:
+                return "rocket_base"
+            if abs(cx) < 2.0:
+                return "rocket_fore_cap"
+
+    if max_excess_mm > 1.0:
+        app_hit = _match_axial_interval(cx_m, app_intervals, tol_m=0.004)
+        fin_hit = _match_axial_interval(cx_m, fin_intervals, tol_m=0.006)
+        if max_excess_mm > 2.5 and fin_hit is not None:
+            return fin_hit
+        if app_hit is not None:
+            return app_hit
+        if fin_hit is not None:
+            return fin_hit
+        if max_excess_mm > 2.5 and fin_intervals:
+            return min(
+                fin_intervals,
+                key=lambda item: abs(cx_m - 0.5 * (item[0] + item[1])),
+            )[2]
+
+    for seg in segment_meta:
+        if seg.axial_start_m + 1e-4 <= cx_m <= seg.axial_end_m - 1e-4:
+            return seg.zone_name
+    for seg in segment_meta:
+        if seg.axial_start_m - 1e-4 <= cx_m <= seg.axial_end_m + 1e-4:
+            return seg.zone_name
+    if segment_meta:
+        return min(
+            segment_meta,
+            key=lambda seg: abs(cx_m - 0.5 * (seg.axial_start_m + seg.axial_end_m)),
+        ).zone_name
+    return "rocket_body"
 
 
 def _classify_fluid_domain_faces(

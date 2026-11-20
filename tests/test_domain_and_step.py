@@ -7,7 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from ork2cfd.geometry import build_cfd_domain, export_step_with_names, export_stl_with_regions
+from ork2cfd.geometry import (
+    build_cfd_domain,
+    build_rocket_component_domain,
+    export_step_with_names,
+    export_stl_with_regions,
+    load_step_for_verification,
+    tessellate_domain_zones,
+    verify_cad_model,
+)
 from ork2cfd.models import (
     BoiConfig,
     CadConfig,
@@ -285,3 +293,160 @@ def test_multistage_symmetry_quadrant_vs_half_sector_and_stage_selection(tmp_pat
     assert out_coprime.report.is_watertight
     assert any("rotational symmetry order = 1" in w for w in out_coprime.report.warnings)
     assert "symmetry" not in out_coprime.report.named_selections
+
+
+def _write_duplicate_tubes_ork(path: Path) -> Path:
+    """Write a single-stage .ork with identically named body tubes to test disambiguation."""
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<openrocket version="1.10" creator="OpenRocket 24.12">
+  <rocket>
+    <name>DupTubes</name>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <subcomponents>
+          <nosecone>
+            <name>Nose</name>
+            <length>0.30</length>
+            <shape>ogive</shape>
+            <shapeparameter>1.0</shapeparameter>
+            <aftradius>0.04</aftradius>
+          </nosecone>
+          <bodytube>
+            <name>Body Tube</name>
+            <length>0.40</length>
+            <radius>0.04</radius>
+          </bodytube>
+          <bodytube>
+            <name>Body Tube</name>
+            <length>0.50</length>
+            <radius>0.04</radius>
+            <subcomponents>
+              <trapezoidfinset>
+                <name>Stabilizers</name>
+                <fincount>4</fincount>
+                <position type="bottom">0.0</position>
+                <thickness>0.003</thickness>
+                <crosssection>square</crosssection>
+                <rotation>0.0</rotation>
+                <rootchord>0.12</rootchord>
+                <tipchord>0.06</tipchord>
+                <sweeplength>0.04</sweeplength>
+                <height>0.08</height>
+              </trapezoidfinset>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+</openrocket>
+"""
+    path.write_text(xml, encoding="utf-8")
+    return path
+
+
+def test_rocket_only_step_component_named_selections(tmp_path: Path) -> None:
+    # 1. Synthetic 2-stage rocket: keeps distinct body & fin Named Selections per stage
+    ork_2s = _write_two_stage_ork(tmp_path / "two_stage.ork", 4, 4)
+    rkt_2s = parse_ork_file(ork_2s)
+    cad = CadConfig(step_schema="AP214")
+    dom_cfg = DomainConfig(mode=DomainMode.OML_ONLY, boi=BoiConfig(enabled=False))
+
+    dom_2s = build_rocket_component_domain(rkt_2s, cad)
+    assert dom_2s.report.is_valid
+    assert dom_2s.report.is_watertight
+    assert dom_2s.report.free_edge_count == 0
+    assert dom_2s.report.sliver_face_count == 0
+
+    expected_2s = {
+        "nose",
+        "sustainer_tube",
+        "sustainer_fins",
+        "booster_tube",
+        "booster_fins",
+        "rocket_base",
+    }
+    assert expected_2s.issubset(dom_2s.report.named_selections.keys())
+
+    step_2s = tmp_path / "TwoStage_rocket.step"
+    man_2s = tmp_path / "TwoStage_rocket_manifest.json"
+    export_step_with_names(dom_2s, step_2s, man_2s, rkt_2s, cad, dom_cfg)
+
+    txt_2s = step_2s.read_text(encoding="utf-8", errors="replace")
+    assert "SI_UNIT($,.METRE.)" in txt_2s
+    for zone in expected_2s:
+        assert f"ADVANCED_FACE('{zone}'" in txt_2s
+
+    loaded_2s = load_step_for_verification(step_2s)
+    meshes_2s = tessellate_domain_zones(loaded_2s, relative=True, include_bois=False)
+    vr_2s = verify_cad_model(
+        domain_out=loaded_2s,
+        zone_meshes=meshes_2s,
+        rocket=rkt_2s,
+        cad_config=cad,
+        domain_config=dom_cfg,
+        step_path=step_2s,
+    )
+    assert vr_2s.overall_status == "PASS"
+    assert vr_2s.step_roundtrip_ok is True
+
+    # 2. Duplicate body tube names + custom fin name disambiguation
+    dup_ork = _write_duplicate_tubes_ork(tmp_path / "dup.ork")
+    rkt_dup = parse_ork_file(dup_ork)
+    dom_dup = build_rocket_component_domain(rkt_dup, cad)
+    assert dom_dup.report.is_watertight
+    assert {"nose", "body_tube_1", "body_tube_2", "stabilizers", "rocket_base"}.issubset(
+        dom_dup.report.named_selections.keys()
+    )
+    step_dup = tmp_path / "Dup_rocket.step"
+    man_dup = tmp_path / "Dup_rocket_manifest.json"
+    export_step_with_names(dom_dup, step_dup, man_dup, rkt_dup, cad, dom_cfg)
+    meshes_dup = tessellate_domain_zones(dom_dup, relative=True, include_bois=False)
+    vr_dup = verify_cad_model(
+        domain_out=dom_dup,
+        zone_meshes=meshes_dup,
+        rocket=rkt_dup,
+        cad_config=cad,
+        domain_config=dom_cfg,
+        step_path=step_dup,
+    )
+    assert vr_dup.overall_status == "PASS"
+
+    # 3. Real 2-stage Banana3.ork if available in workspace
+    banana = Path("sample orks/banana3.ork")
+    if banana.exists():
+        rkt_b = parse_ork_file(banana)
+        dom_b = build_rocket_component_domain(rkt_b, cad)
+        assert dom_b.report.is_valid
+        assert dom_b.report.is_watertight
+        assert dom_b.report.free_edge_count == 0
+        expected_b = {
+            "nose_cone",
+            "transition",
+            "recovery_tube",
+            "avionics_tube",
+            "motor_tube",
+            "sustainer_fins",
+            "booster_tube",
+            "body_tube",
+            "stage2_fins",
+            "rocket_base",
+        }
+        assert expected_b.issubset(dom_b.report.named_selections.keys())
+        step_b = tmp_path / "Banana3_rocket.step"
+        export_step_with_names(
+            dom_b, step_b, tmp_path / "Banana3_rocket_manifest.json", rkt_b, cad, dom_cfg
+        )
+        loaded_b = load_step_for_verification(step_b)
+        meshes_b = tessellate_domain_zones(loaded_b, relative=True, include_bois=False)
+        vr_b = verify_cad_model(
+            domain_out=loaded_b,
+            zone_meshes=meshes_b,
+            rocket=rkt_b,
+            cad_config=cad,
+            domain_config=dom_cfg,
+            step_path=step_b,
+        )
+        assert vr_b.overall_status == "PASS"
+        assert vr_b.step_roundtrip_ok is True

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from ..models._curves import evaluate_profile_radius
@@ -10,6 +11,58 @@ from ..models.cfd import CadConfig
 from ..models.rocket import BodyComponent, RocketModel
 
 SCALE_M_TO_MM = 1000.0
+
+
+def sanitize_zone_name(name: str, fallback: str = "component") -> str:
+    """Normalize an OpenRocket part or stage name into an ANSYS-safe Named Selection."""
+    cleaned = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    if not cleaned:
+        return fallback
+    if cleaned[0].isdigit():
+        return f"{fallback}_{cleaned}"
+    return cleaned
+
+
+def stage_zone_token(stage_name: str, stage_idx: int) -> str:
+    """Build a concise, clean stage prefix token such as 'sustainer' or 'stage2'."""
+    norm = sanitize_zone_name(stage_name, "")
+    if not norm or norm == "stage":
+        return f"stage{stage_idx}"
+    return norm
+
+
+def _build_component_zone_names(rocket: RocketModel) -> list[str]:
+    """Assign unique ANSYS-safe Named Selections for each BodyComponent nose-to-tail."""
+    indexed: list[tuple[int, str, str]] = []
+    raw_counts: dict[str, int] = {}
+    for st_idx, stage in enumerate(rocket.stages, start=1):
+        st_tok = stage_zone_token(stage.name, st_idx)
+        for comp in stage.components:
+            fb = sanitize_zone_name(comp.component_type, "body")
+            raw = sanitize_zone_name(comp.name, fb)
+            raw_counts[raw] = raw_counts.get(raw, 0) + 1
+            indexed.append((st_idx, st_tok, raw))
+
+    candidates: list[str] = []
+    cand_counts: dict[str, int] = {}
+    for _st_idx, st_tok, raw in indexed:
+        if raw_counts[raw] > 1 and rocket.is_multistage:
+            name = f"{st_tok}_{raw}" if not raw.startswith(f"{st_tok}_") else raw
+        else:
+            name = raw
+        candidates.append(name)
+        cand_counts[name] = cand_counts.get(name, 0) + 1
+
+    seen: dict[str, int] = {}
+    unique_names: list[str] = []
+    for name in candidates:
+        if cand_counts[name] == 1:
+            unique_names.append(name)
+        else:
+            idx = seen.get(name, 0) + 1
+            seen[name] = idx
+            unique_names.append(f"{name}_{idx}")
+    return unique_names
 
 
 @dataclass(frozen=True)
@@ -136,18 +189,22 @@ def build_merged_meridian_points_mm(
 def build_meridian_spans_mm(
     rocket: RocketModel,
     cad_config: CadConfig,
+    merge_collinear: bool = True,
+    per_component_zones: bool = False,
 ) -> tuple[list[MeridianCurveSpan], list[ProfileSegmentMeta]]:
     """
-    Build merged meridian curve spans (in mm) grouping curved contours vs straight segments.
+    Build meridian curve spans (in mm) grouping curved contours vs straight segments.
 
-    Consecutive collinear straight segments (e.g., joined body tubes) are merged into one span
-    to eliminate artificial seam edges, while curved nosecones/transitions become single smooth
-    spline spans.
+    When merge_collinear is True (CFD default), consecutive collinear straight segments
+    are merged into one span to eliminate artificial seam edges. Set merge_collinear=False
+    and per_component_zones=True to preserve individual component face boundaries and
+    per-component Named Selections for standalone CAD export.
     """
     comps = rocket.all_components
     if not comps:
         return [], []
 
+    comp_names = _build_component_zone_names(rocket) if per_component_zones else None
     segment_meta: list[ProfileSegmentMeta] = []
     raw_spans: list[MeridianCurveSpan] = []
 
@@ -158,9 +215,10 @@ def build_meridian_spans_mm(
         if idx == 0 and comp.component_type == "nosecone":
             c_pts_m = _apply_nose_tip_blunting(c_pts_m, comp, cad_config.tip_blunt_radius_m)
 
-        zone = _classify_component_zone(comp)
+        zone = comp_names[idx] if comp_names is not None else _classify_component_zone(comp)
         if (
-            segment_meta
+            not per_component_zones
+            and segment_meta
             and segment_meta[-1].zone_name == zone
             and abs(segment_meta[-1].axial_end_m - comp.axial_start) < 1e-6
         ):
@@ -196,6 +254,9 @@ def build_meridian_spans_mm(
             pts_mm = [pts_mm[0], pts_mm[-1]]
 
         raw_spans.append(MeridianCurveSpan(points_mm=tuple(pts_mm), is_curved=is_curved))
+
+    if not merge_collinear:
+        return raw_spans, segment_meta
 
     # Merge consecutive collinear straight spans (such as multiple equal-radius body tubes)
     merged_spans: list[MeridianCurveSpan] = []

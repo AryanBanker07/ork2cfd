@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 from pathlib import Path
 
@@ -18,8 +17,9 @@ from ..models.results import VerificationReport
 from ..models.rocket import RocketModel
 from .domain_builder import DomainBuildOutput
 from .profiles import generate_component_profile_points
-from .step_exporter import _ZONE_COLORS_RGB
+from .step_exporter import zone_color_rgb
 from .tessellation import ZoneMesh
+from .verifier import _NON_ROCKET_ZONES
 
 _EXTRA_COLORS_RGB: dict[str, tuple[float, float, float]] = {
     "fluid_domain_2d": (0.38, 0.65, 0.98),
@@ -30,13 +30,10 @@ _TRANSLUCENT_ZONES = frozenset({"farfield", "inlet", "outlet", "symmetry"})
 
 
 def _zone_color(zone_name: str) -> tuple[float, float, float]:
-    """Return consistent normalized RGB color for a boundary zone or BOI."""
-    if zone_name in _ZONE_COLORS_RGB:
-        return _ZONE_COLORS_RGB[zone_name]
+    """Return consistent normalized RGB color for a boundary zone, component, or BOI."""
     if zone_name in _EXTRA_COLORS_RGB:
         return _EXTRA_COLORS_RGB[zone_name]
-    digest = hashlib.md5(zone_name.encode("utf-8")).digest()
-    return (0.35 + digest[0] / 420.0, 0.35 + digest[1] / 420.0, 0.35 + digest[2] / 420.0)
+    return zone_color_rgb(zone_name)
 
 
 def _mesh_extents(meshes: list[ZoneMesh]) -> tuple[list[float], list[float]]:
@@ -68,7 +65,9 @@ def export_cad_viewer_html(
     )
     template = env.get_template("cad_viewer.html.j2")
 
-    oml_list = [m for n, m in zone_meshes.items() if n.startswith("rocket_")]
+    oml_list = [
+        m for n, m in zone_meshes.items() if not m.is_boi and n not in _NON_ROCKET_ZONES
+    ]
     all_list = list(zone_meshes.values())
     oml_bmin, oml_bmax = _mesh_extents(oml_list or all_list)
     dom_bmin = [float(v) for v in domain_out.bbox_domain_min_m]
@@ -269,7 +268,9 @@ def export_cad_views_png(
         2, 2, wspace=0.22, hspace=0.28, top=0.91, bottom=0.06, left=0.06, right=0.97
     )
 
-    oml_meshes = [m for n, m in zone_meshes.items() if n.startswith("rocket_")]
+    oml_meshes = [
+        m for n, m in zone_meshes.items() if not m.is_boi and n not in _NON_ROCKET_ZONES
+    ]
     primary_meshes = oml_meshes or [
         m for m in zone_meshes.values() if not m.is_boi
     ] or list(zone_meshes.values())

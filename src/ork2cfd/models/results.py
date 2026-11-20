@@ -130,6 +130,8 @@ class PackageResult:
     step_path: Path | None = None
     stl_path: Path | None = None
     manifest_path: Path | None = None
+    rocket_step_path: Path | None = None
+    rocket_manifest_path: Path | None = None
     script_paths: dict[str, Path] = field(default_factory=dict)
     wbpj_path: Path | None = None
     wbpz_path: Path | None = None

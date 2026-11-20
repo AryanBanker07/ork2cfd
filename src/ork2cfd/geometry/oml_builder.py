@@ -57,14 +57,22 @@ def build_rocket_oml(
     rocket: RocketModel,
     cad_config: CadConfig,
     seam_angle_deg: float | None = None,
+    preserve_component_faces: bool = False,
 ) -> OmlBuildOutput:
     """
-    Build the single watertight 3D rocket OML solid (in mm) ready for fluid domain subtraction.
+    Build the single watertight 3D rocket OML solid (in mm) ready for CFD or CAD export.
 
-    Revolves the merged meridian profile with seam line rotated away from fin planes,
-    fuses all fins and optional appendages, and runs BRepCheck validation.
+    Revolves the meridian profile with seam line rotated away from fin planes,
+    fuses all fins and optional appendages, and runs BRepCheck validation. When
+    preserve_component_faces is True, consecutive equal-radius body tubes retain
+    separate face boundaries for per-component Named Selections.
     """
-    spans, seg_meta = build_meridian_spans_mm(rocket, cad_config)
+    spans, seg_meta = build_meridian_spans_mm(
+        rocket,
+        cad_config,
+        merge_collinear=not preserve_component_faces,
+        per_component_zones=preserve_component_faces,
+    )
     if not spans:
         raise GeometryBuildError(f"Rocket '{rocket.name}' produced empty meridian profile.")
 
@@ -75,7 +83,11 @@ def build_rocket_oml(
         first_rot = rocket.all_fins[0].rotation_deg if rocket.all_fins else 0.0
         seam_angle_deg = first_rot + 180.0 / n_dom
 
-    body_shape = _revolve_spans_mm(spans, seam_angle_deg=seam_angle_deg)
+    body_shape = _revolve_spans_mm(
+        spans,
+        seam_angle_deg=seam_angle_deg,
+        unify_same_domain=not preserve_component_faces,
+    )
     body_stats = validate_brep_shape(body_shape)
     if not body_stats.is_watertight:
         raise GeometryBuildError(
@@ -144,6 +156,7 @@ def build_axisymmetric_2d_body_face_mm(
 def _revolve_spans_mm(
     spans: list[MeridianCurveSpan],
     seam_angle_deg: float,
+    unify_same_domain: bool = True,
 ) -> TopoDS_Shape:
     """Build closed 2D meridian wire using smooth B-splines for curved sections and revolve."""
     wire_maker = BRepBuilderAPI_MakeWire()
@@ -210,6 +223,9 @@ def _revolve_spans_mm(
     revol.Build()
     if not revol.IsDone():
         raise GeometryBuildError("360-degree revolution of OML body failed.")
+
+    if not unify_same_domain:
+        return revol.Shape()
 
     unifier = ShapeUpgrade_UnifySameDomain(revol.Shape(), True, True, False)
     unifier.Build()

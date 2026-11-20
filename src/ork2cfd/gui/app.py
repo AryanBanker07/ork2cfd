@@ -91,6 +91,7 @@ class Ork2CfdApp(ctk.CTk):
         self.var_lugs = ctk.BooleanVar(value=False)
 
         self.var_step = ctk.BooleanVar(value=True)
+        self.var_rocket_step = ctk.BooleanVar(value=True)
         self.var_stl = ctk.BooleanVar(value=False)
         self.var_verify = ctk.BooleanVar(value=True)
         self.var_scripts = ctk.BooleanVar(value=True)
@@ -375,7 +376,7 @@ class Ork2CfdApp(ctk.CTk):
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
 
         add_labeled_checkbox(
-            card.body, 2, 0, "Watertight .step + JSON", self.var_step,
+            card.body, 2, 0, "CFD Domain .step + JSON", self.var_step,
             help_key="deliv_step", icon_registry=self._info_icons,
         )
         add_labeled_checkbox(
@@ -397,6 +398,10 @@ class Ork2CfdApp(ctk.CTk):
         add_labeled_checkbox(
             card.body, 4, 1, "CAD Viewer & Verify (.html/.png)", self.var_verify,
             help_key="deliv_verify", icon_registry=self._info_icons,
+        )
+        add_labeled_checkbox(
+            card.body, 5, 0, "Rocket-Only .step (Named Parts)", self.var_rocket_step,
+            help_key="deliv_rocket_step", icon_registry=self._info_icons,
         )
 
     def _build_next_steps_card(self, parent, row: int) -> None:
@@ -619,6 +624,7 @@ class Ork2CfdApp(ctk.CTk):
         )
         deliverables = DeliverableConfig(
             export_step=self.var_step.get(),
+            export_rocket_step=self.var_rocket_step.get(),
             export_stl=self.var_stl.get(),
             export_verification=self.var_verify.get(),
             generate_scripts=self.var_scripts.get(),
@@ -717,6 +723,8 @@ class Ork2CfdApp(ctk.CTk):
             )
         if res.step_path:
             self._append_log(f"[OK] STEP: {res.step_path.name}")
+        if res.rocket_step_path:
+            self._append_log(f"[OK] Rocket STEP: {res.rocket_step_path.name}")
         if res.stl_path:
             self._append_log(f"[OK] STL: {res.stl_path.name}")
         if res.viewer_html_path:

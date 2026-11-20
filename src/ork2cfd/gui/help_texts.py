@@ -64,8 +64,10 @@ HELP_TEXTS: dict[str, HelpEntry] = {
     "sec_deliverables": HelpEntry(
         title="Exported Deliverables & ANSYS Integration",
         body=(
-            "Controls which CFD artifacts are generated in the output folder:\n"
-            "• Watertight .step + _manifest.json for direct CAD/Fluent Meshing import.\n"
+            "Controls which CAD artifacts are generated in the output folder:\n"
+            "• CFD Fluid Domain <rocket>_cfd.step + _manifest.json for Fluent Meshing.\n"
+            "• Standalone Rocket-Only <rocket>_rocket.step with individual Named Selections "
+            "and surface colors for every nosecone, transition, body tube, fin set, and base.\n"
             "• Runnable ANSYS scripts (run_fluent.py, .jou journals, discovery_prep.py, "
             "create_project.wbjn, README_RUN.md).\n"
             "• Ready-to-open ANSYS Workbench project (.wbpj + _files/ and optional .wbpz) "
@@ -257,12 +259,29 @@ HELP_TEXTS: dict[str, HelpEntry] = {
     ),
     # Section 4: Deliverables
     "deliv_step": HelpEntry(
-        title="Deliverable: Watertight .step + Manifest",
+        title="Deliverable: CFD Domain .step + Manifest",
         body=(
             "Exports <rocket>_cfd.step in SI meters with embedded XCAF Named Selections "
             "and BOI solids, plus <rocket>_manifest.json containing exact validation stats "
             "(watertightness, free-edge count = 0, bounding box, reference area) and face "
             "centroids for automated fallback selection."
+        ),
+    ),
+    "deliv_rocket_step": HelpEntry(
+        title="Deliverable: Standalone Rocket-Only .step (Named Parts)",
+        body=(
+            "Exports <rocket>_rocket.step + <rocket>_rocket_manifest.json containing a "
+            "watertight 3D solid of the rocket alone (no surrounding fluid box), with "
+            "individual axial seams and embedded XCAF Named Selections + distinct colors "
+            "for every main OpenRocket component:\n\n"
+            "• Nosecones & Transitions (e.g., nose_cone, transition)\n"
+            "• Individual Body Tubes (e.g., recovery_tube, avionics_tube, motor_tube, "
+            "booster_tube, body_tube) — kept as separate faces instead of merged\n"
+            "• Per-Stage Fin Sets (e.g., sustainer_fins, stage2_fins / booster_fins)\n"
+            "• Base Cap (rocket_base) & enabled Rail Buttons / Launch Lugs\n\n"
+            "Ideal for opening directly in SolidWorks, ANSYS SpaceClaim/Discovery, Fusion "
+            "360, or structural/custom CFD setups where each rocket part needs its own "
+            "Named Selection."
         ),
     ),
     "deliv_scripts": HelpEntry(

@@ -9,13 +9,13 @@ from pathlib import Path
 from .ansys.detector import select_best_installation
 from .ansys.script_generator import generate_ansys_scripts
 from .ansys.workbench_builder import build_workbench_project
-from .geometry.domain_builder import build_cfd_domain
+from .geometry.domain_builder import build_cfd_domain, build_rocket_component_domain
 from .geometry.step_exporter import export_step_with_names
 from .geometry.stl_exporter import export_stl_with_regions
 from .geometry.tessellation import tessellate_domain_zones
 from .geometry.verifier import verify_cad_model, write_verification_reports
 from .geometry.viewer_exporter import export_cad_viewer_html, export_cad_views_png
-from .models.cfd import PipelineConfig
+from .models.cfd import BoiConfig, DomainConfig, DomainMode, PipelineConfig
 from .models.results import GeometryReport, PackageResult, VerificationReport
 from .parser.ork_parser import parse_ork_file
 from .physics.boundary_layer import compute_boundary_layer
@@ -62,6 +62,8 @@ def run_pipeline(
     step_path: Path | None = None
     stl_path: Path | None = None
     manifest_path: Path | None = None
+    rocket_step_path: Path | None = None
+    rocket_manifest_path: Path | None = None
     geom_report: GeometryReport | None = None
     verification_report: VerificationReport | None = None
     viewer_html_path: Path | None = None
@@ -69,24 +71,24 @@ def run_pipeline(
     verification_json_path: Path | None = None
     verification_md_path: Path | None = None
 
-    need_step = (
+    need_cfd_step = (
         cfg.deliverables.export_step
         or cfg.deliverables.generate_scripts
         or cfg.deliverables.build_wbpj
     )
-    need_domain = (
-        need_step
+    need_cfd_domain = (
+        need_cfd_step
         or cfg.deliverables.export_stl
-        or cfg.deliverables.export_verification
+        or (cfg.deliverables.export_verification and not cfg.deliverables.export_rocket_step)
     )
-    if need_domain:
+    if need_cfd_domain:
         _emit("Building watertight 3D OML, fluid domain, and BOIs...", 0.35)
         domain_out = build_cfd_domain(rocket, cfg.cad, cfg.domain, solver_rec)
         geom_report = domain_out.report
         warnings.extend(geom_report.warnings)
 
-        if need_step:
-            _emit("Exporting XCAF STEP with Named Selections...", 0.55)
+        if need_cfd_step:
+            _emit("Exporting XCAF STEP with Named Selections...", 0.52)
             step_target = out_dir / f"{stem}_cfd.step"
             manifest_target = out_dir / f"{stem}_manifest.json"
             step_path, manifest_path = export_step_with_names(
@@ -99,7 +101,7 @@ def run_pipeline(
             )
 
         if cfg.deliverables.export_stl:
-            _emit("Exporting multi-region CFD STL mesh...", 0.62)
+            _emit("Exporting multi-region CFD STL mesh...", 0.58)
             stl_target = out_dir / f"{stem}_cfd.stl"
             stl_path, _tri_count = export_stl_with_regions(
                 domain_out=domain_out,
@@ -108,7 +110,7 @@ def run_pipeline(
             )
 
         if cfg.deliverables.export_verification:
-            _emit("Verifying CAD model & generating 3D viewer and diagnostic views...", 0.68)
+            _emit("Verifying CAD model & generating 3D viewer and diagnostic views...", 0.64)
             zone_meshes = tessellate_domain_zones(domain_out, relative=True, include_bois=True)
             verification_report = verify_cad_model(
                 domain_out=domain_out,
@@ -150,6 +152,63 @@ def run_pipeline(
                         f"CAD Verification FAIL [{chk.name}]: {chk.details or chk.measured}"
                     )
 
+    if cfg.deliverables.export_rocket_step:
+        _emit("Building standalone rocket-only STEP with per-component Named Selections...", 0.68)
+        rocket_dom_cfg = DomainConfig(mode=DomainMode.OML_ONLY, boi=BoiConfig(enabled=False))
+        rocket_dom = build_rocket_component_domain(rocket, cfg.cad)
+        warnings.extend(rocket_dom.report.warnings)
+        if geom_report is None:
+            geom_report = rocket_dom.report
+        rocket_step_path, rocket_manifest_path = export_step_with_names(
+            domain_out=rocket_dom,
+            step_path=out_dir / f"{stem}_rocket.step",
+            manifest_path=out_dir / f"{stem}_rocket_manifest.json",
+            rocket=rocket,
+            cad_config=cfg.cad,
+            domain_config=rocket_dom_cfg,
+        )
+        if cfg.deliverables.export_verification and verification_report is None:
+            _emit("Verifying rocket-only CAD & generating 3D viewer and diagnostic views...", 0.72)
+            r_meshes = tessellate_domain_zones(rocket_dom, relative=True, include_bois=False)
+            verification_report = verify_cad_model(
+                domain_out=rocket_dom,
+                zone_meshes=r_meshes,
+                rocket=rocket,
+                cad_config=cfg.cad,
+                domain_config=rocket_dom_cfg,
+                step_path=rocket_step_path,
+            )
+            viewer_html_path = export_cad_viewer_html(
+                zone_meshes=r_meshes,
+                verification_report=verification_report,
+                html_path=out_dir / f"{stem}_cad_viewer.html",
+                model_name=rocket.name,
+                domain_out=rocket_dom,
+                rocket=rocket,
+            )
+            views_png_path = export_cad_views_png(
+                zone_meshes=r_meshes,
+                verification_report=verification_report,
+                png_path=out_dir / f"{stem}_cad_views.png",
+                model_name=rocket.name,
+                domain_out=rocket_dom,
+                rocket=rocket,
+            )
+            verification_json_path, verification_md_path = write_verification_reports(
+                report=verification_report,
+                json_path=out_dir / f"{stem}_verification.json",
+                md_path=out_dir / f"{stem}_verification.md",
+                model_name=rocket.name,
+                step_path=rocket_step_path,
+                viewer_html_path=viewer_html_path,
+                views_png_path=views_png_path,
+            )
+            for chk in verification_report.checks:
+                if chk.status == "FAIL":
+                    warnings.append(
+                        f"CAD Verification FAIL [{chk.name}]: {chk.details or chk.measured}"
+                    )
+
     ansys_install = select_best_installation(cfg.deliverables.ansys_version)
     wbpj_target = out_dir / f"{stem}_cfd.wbpj"
     wbpz_target = (out_dir / f"{stem}_cfd.wbpz") if cfg.deliverables.archive_wbpz else None
@@ -159,7 +218,7 @@ def run_pipeline(
         assert step_path is not None and manifest_path is not None
         _emit(
             "Generating ANSYS PyFluent, Fluent journal, Discovery, and Workbench scripts...",
-            0.72,
+            0.75,
         )
         script_paths = generate_ansys_scripts(
             output_dir=out_dir,
@@ -186,7 +245,7 @@ def run_pipeline(
         else:
             _emit(
                 f"Building ANSYS Workbench project via {ansys_install.label} (may take 15-40s)...",
-                0.82,
+                0.84,
             )
             wbjn_path = script_paths["create_project.wbjn"]
             wbpj_out, wbpz_out = build_workbench_project(
@@ -206,6 +265,8 @@ def run_pipeline(
         step_path=step_path,
         stl_path=stl_path,
         manifest_path=manifest_path,
+        rocket_step_path=rocket_step_path,
+        rocket_manifest_path=rocket_manifest_path,
         script_paths=script_paths,
         wbpj_path=wbpj_out,
         wbpz_path=wbpz_out,

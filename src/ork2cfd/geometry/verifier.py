@@ -28,11 +28,15 @@ from ..models.cfd import CadConfig, DomainConfig, DomainMode, EnclosureShape
 from ..models.results import GeometryReport, VerificationCheck, VerificationReport
 from ..models.rocket import RocketModel
 from .domain_builder import DomainBuildOutput, FaceZoneEntry
-from .profiles import SCALE_M_TO_MM
+from .profiles import SCALE_M_TO_MM, sanitize_zone_name
 from .tessellation import ZoneMesh
 from .validator import validate_brep_shape
 
 _STEP_READER_INITIALIZED = False
+
+_NON_ROCKET_ZONES = frozenset(
+    {"farfield", "inlet", "outlet", "symmetry", "fluid_domain_2d", "imported_cad"}
+)
 
 
 def _ensure_step_reader_init() -> None:
@@ -243,8 +247,10 @@ def _compute_oml_extents(
     zone_meshes: dict[str, ZoneMesh],
     domain_out: DomainBuildOutput,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float], float, list[ZoneMesh]]:
-    """Compute (bbox_min_m, bbox_max_m, max_radius_m, oml_meshes) over rocket_* zones."""
-    oml_meshes = [m for n, m in zone_meshes.items() if n.startswith("rocket_")]
+    """Compute (bbox_min_m, bbox_max_m, max_radius_m, oml_meshes) over rocket OML zones."""
+    oml_meshes = [
+        m for n, m in zone_meshes.items() if not m.is_boi and n not in _NON_ROCKET_ZONES
+    ]
     if not oml_meshes:
         return domain_out.bbox_domain_min_m, domain_out.bbox_domain_max_m, 0.0, []
 
@@ -286,10 +292,31 @@ def _check_required_zones(
         )
 
     missing: list[str] = []
-    if "rocket_nosecone" not in zone_meshes and "rocket_body" not in zone_meshes:
-        missing.append("rocket_nosecone|rocket_body")
-    if rocket.all_fins and "rocket_fins" not in zone_meshes:
-        missing.append("rocket_fins")
+    if mode == DomainMode.OML_ONLY:
+        body_zones = [
+            z
+            for z, m in zone_meshes.items()
+            if not m.is_boi
+            and z not in _NON_ROCKET_ZONES
+            and z not in {"rocket_base", "rocket_fore_cap"}
+        ]
+        if not body_zones:
+            missing.append("rocket_body|component")
+        if rocket.all_fins:
+            expected_fin_tokens = {"fin", "canard"} | {
+                sanitize_zone_name(f.name, "fins") for f in rocket.all_fins
+            }
+            has_fin_zone = any(
+                ("fin" in z.lower() or "canard" in z.lower() or z in expected_fin_tokens)
+                for z in zone_meshes
+            )
+            if not has_fin_zone:
+                missing.append("rocket_fins")
+    else:
+        if "rocket_nosecone" not in zone_meshes and "rocket_body" not in zone_meshes:
+            missing.append("rocket_nosecone|rocket_body")
+        if rocket.all_fins and "rocket_fins" not in zone_meshes:
+            missing.append("rocket_fins")
     if domain_config is not None and domain_config.mode != DomainMode.OML_ONLY:
         if "farfield" not in zone_meshes:
             missing.append("farfield")

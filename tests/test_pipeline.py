@@ -44,6 +44,8 @@ def test_full_pipeline_without_wbpj(synthetic_ork_file: Path, tmp_path: Path) ->
 
     assert res.step_path is not None and res.step_path.exists()
     assert res.manifest_path is not None and res.manifest_path.exists()
+    assert res.rocket_step_path is not None and res.rocket_step_path.exists()
+    assert res.rocket_manifest_path is not None and res.rocket_manifest_path.exists()
     assert res.viewer_html_path is not None and res.viewer_html_path.exists()
     assert res.views_png_path is not None and res.views_png_path.exists()
     assert res.verification_json_path is not None and res.verification_json_path.exists()
@@ -85,6 +87,8 @@ def test_cli_inspect_calc_bl_and_convert(synthetic_ork_file: Path, tmp_path: Pat
     )
     assert res_conv.exit_code == 0
     assert (out_dir / "TestRocket_cfd.step").exists()
+    assert (out_dir / "TestRocket_rocket.step").exists()
+    assert (out_dir / "TestRocket_rocket_manifest.json").exists()
     assert (out_dir / "run_fluent.py").exists()
     assert (out_dir / "create_project.wbjn").exists()
     norm_out = " ".join(res_conv.output.split())
@@ -119,7 +123,13 @@ def test_help_texts_complete() -> None:
         "mach", "altitude", "aoa", "yplus", "regime", "mesh_preset", "cores", "iterations",
         "domain_mode", "enclosure_shape", "blunt_radius", "step_schema",
         "include_bois", "fin_fillets", "rail_buttons", "launch_lugs",
-        "deliv_step", "deliv_stl", "deliv_scripts", "deliv_wbpj", "deliv_wbpz", "deliv_verify",
+        "deliv_step",
+        "deliv_rocket_step",
+        "deliv_stl",
+        "deliv_scripts",
+        "deliv_wbpj",
+        "deliv_wbpz",
+        "deliv_verify",
     }
     assert expected_keys.issubset(HELP_TEXTS.keys())
     for key in expected_keys:
@@ -139,7 +149,7 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 28
+        assert len(app._info_icons) == 29
         assert app.btn_view_cad is not None
         assert app.btn_ansys_guide is not None
         assert "Wall Yplus" in app.lbl_next_steps.cget("text")
@@ -173,6 +183,7 @@ def test_pipeline_stl_only(synthetic_ork_file: Path, tmp_path: Path) -> None:
         flight=FlightCondition(mach=0.8),
         deliverables=DeliverableConfig(
             export_step=False,
+            export_rocket_step=False,
             export_stl=True,
             export_verification=False,
             generate_scripts=False,
@@ -187,10 +198,43 @@ def test_pipeline_stl_only(synthetic_ork_file: Path, tmp_path: Path) -> None:
     )
 
     assert res.step_path is None
+    assert res.rocket_step_path is None
     assert res.manifest_path is None
     assert res.stl_path is not None and res.stl_path.exists()
     assert res.geometry_report is not None and res.geometry_report.is_valid
     assert "solid rocket_nosecone\n" in res.stl_path.read_text(encoding="utf-8")
+
+
+def test_pipeline_rocket_step_only_with_verification(
+    synthetic_ork_file: Path,
+    tmp_path: Path,
+) -> None:
+    cfg = PipelineConfig(
+        deliverables=DeliverableConfig(
+            export_step=False,
+            export_rocket_step=True,
+            export_stl=False,
+            export_verification=True,
+            generate_scripts=False,
+            build_wbpj=False,
+        ),
+    )
+
+    res = run_pipeline(
+        ork_path=synthetic_ork_file,
+        output_dir=tmp_path / "rocket_only",
+        config=cfg,
+    )
+
+    assert res.step_path is None
+    assert res.manifest_path is None
+    assert res.rocket_step_path is not None and res.rocket_step_path.exists()
+    assert res.rocket_manifest_path is not None and res.rocket_manifest_path.exists()
+    assert res.viewer_html_path is not None and res.viewer_html_path.exists()
+    assert res.views_png_path is not None and res.views_png_path.exists()
+    assert res.verification_report is not None
+    assert res.verification_report.overall_status == "PASS"
+    assert res.verification_report.step_roundtrip_ok is True
 
 
 def test_cli_convert_with_stl(synthetic_ork_file: Path, tmp_path: Path) -> None:

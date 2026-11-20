@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import zlib
 from pathlib import Path
 
 from OCP.Interface import Interface_Static
@@ -38,6 +39,44 @@ _ZONE_COLORS_RGB: dict[str, tuple[float, float, float]] = {
     "boi_nearfield": (0.25, 0.85, 0.85),
     "boi_wake": (0.55, 0.45, 0.95),
 }
+
+
+_BODY_COMPONENT_PALETTE: tuple[tuple[float, float, float], ...] = (
+    (0.70, 0.80, 0.92),
+    (0.45, 0.72, 0.85),
+    (0.55, 0.82, 0.72),
+    (0.62, 0.72, 0.90),
+    (0.78, 0.84, 0.72),
+    (0.52, 0.65, 0.82),
+    (0.68, 0.76, 0.84),
+    (0.42, 0.78, 0.78),
+)
+
+_FIN_COMPONENT_PALETTE: tuple[tuple[float, float, float], ...] = (
+    (0.95, 0.25, 0.25),
+    (0.95, 0.48, 0.18),
+    (0.84, 0.20, 0.46),
+    (0.92, 0.34, 0.38),
+)
+
+
+def zone_color_rgb(zone_name: str) -> tuple[float, float, float]:
+    """Return a consistent normalized RGB color for canonical or component-level zones."""
+    if zone_name in _ZONE_COLORS_RGB:
+        return _ZONE_COLORS_RGB[zone_name]
+    low = zone_name.lower()
+    idx = zlib.crc32(low.encode("utf-8"))
+    if "nose" in low:
+        return (0.95, 0.65, 0.15)
+    if "transition" in low or "boattail" in low or "shroud" in low:
+        return (0.76, 0.45, 0.88)
+    if "fin" in low or "canard" in low:
+        return _FIN_COMPONENT_PALETTE[idx % len(_FIN_COMPONENT_PALETTE)]
+    if "base" in low or "fore_cap" in low:
+        return (0.35, 0.35, 0.40)
+    if "rail" in low or "lug" in low or "button" in low:
+        return (0.95, 0.88, 0.22)
+    return _BODY_COMPONENT_PALETTE[idx % len(_BODY_COMPONENT_PALETTE)]
 
 
 _STEP_INITIALIZED = False
@@ -86,10 +125,9 @@ def export_step_with_names(
         sub_label = shape_tool.AddSubShape(main_label, entry.face)
         if not sub_label.IsNull():
             _set_label_name(sub_label, entry.zone_name)
-            rgb = _ZONE_COLORS_RGB.get(entry.zone_name)
-            if rgb is not None:
-                qcol = Quantity_Color(rgb[0], rgb[1], rgb[2], Quantity_TOC_RGB)
-                color_tool.SetColor(sub_label, qcol, XCAFDoc_ColorSurf)
+            rgb = zone_color_rgb(entry.zone_name)
+            qcol = Quantity_Color(rgb[0], rgb[1], rgb[2], Quantity_TOC_RGB)
+            color_tool.SetColor(sub_label, qcol, XCAFDoc_ColorSurf)
 
     for boi_name, boi_shape in domain_out.boi_solids:
         boi_unwrapped = _unwrap_single_solid(boi_shape)
