@@ -12,6 +12,8 @@ import customtkinter as ctk
 
 from ..ansys.detector import AnsysInstallation, select_best_installation
 from ..ansys.fluent_launcher import launch_fluent_run
+from ..ansys.next_steps import build_ansys_next_steps_markdown, build_ansys_next_steps_summary
+from ..ansys.script_generator import _symmetry_multiplier
 from ..models.cfd import (
     BoiConfig,
     CadConfig,
@@ -125,6 +127,7 @@ class Ork2CfdApp(ctk.CTk):
         self._build_physics_card(left, row=1)
         self._build_cad_card(left, row=2)
         self._build_deliverables_card(left, row=3)
+        self._build_next_steps_card(left, row=4)
 
         # Right column: Preview + Log + Actions
         right = ctk.CTkFrame(self, fg_color="transparent")
@@ -396,10 +399,94 @@ class Ork2CfdApp(ctk.CTk):
             help_key="deliv_verify", icon_registry=self._info_icons,
         )
 
+    def _build_next_steps_card(self, parent, row: int) -> None:
+        card = SectionCard(
+            parent,
+            "5. Next Steps — View Results in ANSYS",
+            help_key="sec_next_steps",
+            icon_registry=self._info_icons,
+        )
+        card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
+
+        initial_text = build_ansys_next_steps_summary(
+            stem="<rocket>",
+            domain_mode=DomainMode.FLUID_DOMAIN,
+            sym_multiplier=1.0,
+            mach=0.8,
+            aoa_deg=0.0,
+            target_yplus=1.0,
+            wbpj_filename="<rocket>_cfd.wbpj" if self._ansys_install else None,
+        )
+        self.lbl_next_steps = ctk.CTkLabel(
+            card.body,
+            text=initial_text,
+            justify="left",
+            anchor="w",
+            wraplength=415,
+            font=ctk.CTkFont(size=11),
+            text_color="#cbd5e1",
+        )
+        self.lbl_next_steps.grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        self.btn_ansys_guide = ctk.CTkButton(
+            card.body,
+            text="Open Full ANSYS Results Guide",
+            height=30,
+            fg_color="#1e40af",
+            command=self._on_open_ansys_guide,
+        )
+        self.btn_ansys_guide.grid(row=1, column=0, columnspan=2, pady=(8, 0), sticky="ew")
+
+    def _refresh_next_steps(self) -> None:
+        cfg = self._collect_config()
+        active = self._active_rocket()
+        stem = sanitize_stem(active.name) if active is not None else "<rocket>"
+        stage_key = self._selected_stage_key()
+        if (
+            stage_key not in {"", "all"}
+            and self._rocket is not None
+            and self._rocket.is_multistage
+        ):
+            stem = f"{stem}_{sanitize_stem(stage_key)}"
+        sym_mult = (
+            _symmetry_multiplier(active, cfg.domain.mode)
+            if active is not None
+            else (
+                2.0
+                if cfg.domain.mode == DomainMode.SYMMETRY_HALF
+                else 4.0
+                if cfg.domain.mode == DomainMode.SYMMETRY_SECTOR
+                else 8.0
+                if cfg.domain.mode == DomainMode.SYMMETRY_HALF_SECTOR
+                else 1.0
+            )
+        )
+        wbpj_name = (
+            self._last_result.wbpj_path.name
+            if (self._last_result is not None and self._last_result.wbpj_path is not None)
+            else (f"{stem}_cfd.wbpj" if cfg.deliverables.build_wbpj else None)
+        )
+        summary = build_ansys_next_steps_summary(
+            stem=stem,
+            domain_mode=cfg.domain.mode,
+            sym_multiplier=sym_mult,
+            mach=cfg.flight.mach,
+            aoa_deg=cfg.flight.aoa_deg,
+            target_yplus=cfg.flight.target_yplus,
+            wbpj_filename=wbpj_name,
+        )
+        self.lbl_next_steps.configure(
+            text=summary,
+            text_color=("#cbd5e1" if self.var_dark.get() else "#1e293b"),
+        )
+
     def _toggle_theme(self) -> None:
         dark = self.var_dark.get()
         ctk.set_appearance_mode("dark" if dark else "light")
         self.preview.set_theme(dark)
+        self.lbl_next_steps.configure(
+            text_color=("#cbd5e1" if dark else "#1e293b"),
+        )
 
     def _browse_ork(self) -> None:
         path = filedialog.askopenfilename(
@@ -567,6 +654,7 @@ class Ork2CfdApp(ctk.CTk):
             text_color=("#fbbf24" if bl.exceeds_student_limit else "#38bdf8"),
         )
         self.preview.update_preview(active, cfg.domain, rec)
+        self._refresh_next_steps()
 
     def _on_generate(self) -> None:
         if self._is_running:
@@ -649,12 +737,91 @@ class Ork2CfdApp(ctk.CTk):
             self._append_log(f"[OK] Archive: {res.wbpz_path.name}")
         for w in res.warnings:
             self._append_log(f"[WARN] {w}")
+        self._refresh_next_steps()
+        self._append_log(
+            "[NEXT] See README_RUN.md (Section 4) or click 'Open Full ANSYS Results Guide' "
+            "for Fluent / CFD-Post result steps."
+        )
 
     def _on_error(self, exc: Exception) -> None:
         self._is_running = False
         self.btn_generate.configure(state="normal", text="Generate CFD Package")
         self.progress.set(0.0)
         self._append_log(f"[ERROR] {exc}")
+
+    def _on_open_ansys_guide(self) -> ctk.CTkToplevel | None:
+        cfg = self._collect_config()
+        active = self._active_rocket()
+        stem = sanitize_stem(active.name) if active is not None else "<rocket>"
+        stage_key = self._selected_stage_key()
+        if (
+            stage_key not in {"", "all"}
+            and self._rocket is not None
+            and self._rocket.is_multistage
+        ):
+            stem = f"{stem}_{sanitize_stem(stage_key)}"
+        bl = compute_boundary_layer(active, cfg.flight, cfg.domain.mode) if active else None
+        rec = recommend_solver(active, cfg.flight) if active else None
+        sym_mult = (
+            _symmetry_multiplier(active, cfg.domain.mode)
+            if active is not None
+            else 1.0
+        )
+        wbpj_name = (
+            self._last_result.wbpj_path.name
+            if (self._last_result is not None and self._last_result.wbpj_path is not None)
+            else (f"{stem}_cfd.wbpj" if cfg.deliverables.build_wbpj else None)
+        )
+        guide_text = build_ansys_next_steps_markdown(
+            rocket=active,
+            stem=stem,
+            config=cfg,
+            bl=bl,
+            solver_rec=rec,
+            sym_multiplier=sym_mult,
+            wbpj_filename=wbpj_name,
+        )
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Next Steps — Viewing Results in ANSYS Fluent & CFD-Post")
+        dlg.geometry("700x560")
+        dlg.minsize(520, 400)
+        dlg.grid_columnconfigure(0, weight=1)
+        dlg.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            dlg,
+            text="Next Steps: Viewing & Verifying Results in ANSYS Fluent / CFD-Post",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, padx=14, pady=(12, 6), sticky="ew")
+
+        textbox = ctk.CTkTextbox(
+            dlg,
+            wrap="word",
+            font=ctk.CTkFont(family="Consolas", size=11),
+        )
+        textbox.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="nsew")
+        textbox.insert("1.0", guide_text)
+        textbox.configure(state="disabled")
+
+        btn_bar = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_bar.grid(row=2, column=0, padx=14, pady=(0, 12), sticky="ew")
+        btn_bar.grid_columnconfigure(0, weight=1)
+
+        def _copy_guide() -> None:
+            self.clipboard_clear()
+            self.clipboard_append(guide_text)
+            self._append_log("[OK] Copied ANSYS results walkthrough to clipboard.")
+
+        ctk.CTkButton(btn_bar, text="Copy Guide", width=110, command=_copy_guide).grid(
+            row=0, column=0, sticky="w"
+        )
+        ctk.CTkButton(btn_bar, text="Close", width=90, command=dlg.destroy).grid(
+            row=0, column=1, sticky="e"
+        )
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        return dlg
 
     def _on_view_cad(self) -> None:
         if (

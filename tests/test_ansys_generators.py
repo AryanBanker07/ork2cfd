@@ -113,6 +113,17 @@ def test_generated_scripts_syntax_and_physics(
     solver_jou = scripts["fluent_solver.jou"].read_text(encoding="utf-8")
     assert expected_solver in solver_jou
 
+    readme_run = scripts["README_RUN.md"].read_text(encoding="utf-8")
+    assert "## 4. Next Steps" in readme_run
+    assert "Wall Yplus" in readme_run
+    assert "Results → Reports → Forces" in readme_run
+    assert "CFD-Post" in readme_run
+    assert "Instancing Transform" in readme_run
+    assert "4×" in readme_run
+
+    hs_readme = scripts_hs["README_RUN.md"].read_text(encoding="utf-8")
+    assert "8×" in hs_readme
+
 
 def test_ansys_detector_and_workbench_builder(
     tmp_path: Path,

@@ -319,4 +319,17 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "verification audit."
         ),
     ),
+    "sec_next_steps": HelpEntry(
+        title="Next Steps — Viewing & Verifying Results in ANSYS",
+        body=(
+            "Provides exact, rocket-specific post-processing instructions after solving in "
+            "ANSYS Workbench (.wbpj), ANSYS Fluent GUI (.cas.h5 / .dat.h5), and ANSYS "
+            "CFD-Post:\n"
+            "• Verify solver residuals and Wall y+ contours on rocket_* boundary zones.\n"
+            "• Extract Cd, Cl, and X_CP using pre-computed force vectors and exact "
+            "symmetry-sector scaling factors.\n"
+            "• Slice centerline Mach/Pressure contours, plot wake pathlines, and enable "
+            "CFD-Post Instancing Transform to view the full 360° vehicle."
+        ),
+    ),
 }

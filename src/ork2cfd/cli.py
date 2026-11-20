@@ -7,8 +7,11 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 
+from .ansys.next_steps import build_ansys_next_steps_summary
+from .ansys.script_generator import _symmetry_multiplier
 from .geometry import (
     export_cad_viewer_html,
     export_cad_views_png,
@@ -235,6 +238,27 @@ def convert(
         console.print(f"  Archive:   {res.wbpz_path.name}")
     for w in res.warnings:
         console.print(f"  [yellow]WARN:[/] {w}")
+
+    sym_mult = _symmetry_multiplier(rocket, DomainMode(mode))
+    summary = build_ansys_next_steps_summary(
+        stem=res.step_path.stem.removesuffix("_cfd")
+        if res.step_path
+        else sanitize_stem(rocket.name),
+        domain_mode=DomainMode(mode),
+        sym_multiplier=sym_mult,
+        mach=mach,
+        aoa_deg=aoa_deg,
+        target_yplus=target_yplus,
+        wbpj_filename=res.wbpj_path.name if res.wbpj_path else None,
+    )
+    console.print()
+    console.print(
+        Panel(
+            f"{summary}\n\nFull step-by-step guide: README_RUN.md",
+            title="Next Steps — View Results in ANSYS",
+            border_style="cyan",
+        )
+    )
 
 
 @main.command("calc-bl")

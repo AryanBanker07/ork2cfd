@@ -55,6 +55,15 @@ ork2cfd convert rocket.ork -o ./rocket_cfd --mach 0.85 --mode fluid_domain --sha
 ork2cfd verify rocket.ork -o ./verify_out --mode fluid_domain --open
 ```
 
+## Next Steps: Viewing Results in ANSYS Fluent & CFD-Post
+
+After running `run_fluent.py`, `fluent_meshing.jou` + `fluent_solver.jou`, or updating the generated `<stem>_cfd.wbpj` Workbench project:
+
+1. **Open Solution:** Open `<stem>_cfd.wbpj` in ANSYS Workbench or launch Fluent (`File → Read → Case & Data... → <stem>.cas.h5`).
+2. **Verify Convergence & Wall $y^+$:** Confirm residuals drop `< 1e-4` and plot `Results → Graphics → Contours → Turbulence → Wall Yplus` across `rocket_*` walls.
+3. **Extract $C_d$, $C_l$ & $X_{CP}$:** Open `Results → Reports → Forces → Forces...` (all `rocket_*` zones) with Force Vector $(\cos\alpha, \sin\alpha, 0)$ for Drag (`Cd` is already full-rocket via `A_ref / SYM_FACTOR`; multiply Forces [N] by the symmetry multiplier), and `Moments...` about `(0, 0, 0)` along `Z` for `X_CP = -M_z / F_N`.
+4. **Plot Contours, Wake & Full 360° 3D Views:** Slice centerline XY plane (`Domain → Surface → Create → Plane`, Point `(0,0,0)`, Normal `(0,0,1)` or `symmetry`) for **Mach Number** / **Static Pressure** contours and wake **Pathlines**; in **CFD-Post**, enable `Default Transform → Edit → Instancing Transform` to mirror/pattern symmetry sectors into the full 360° rocket. See the generated `README_RUN.md` (Section 4) or click **Open Full ANSYS Results Guide** in the GUI for exact flight-point numbers.
+
 ## Testing
 
 ```bash

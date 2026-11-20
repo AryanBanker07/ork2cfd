@@ -87,6 +87,9 @@ def test_cli_inspect_calc_bl_and_convert(synthetic_ork_file: Path, tmp_path: Pat
     assert (out_dir / "TestRocket_cfd.step").exists()
     assert (out_dir / "run_fluent.py").exists()
     assert (out_dir / "create_project.wbjn").exists()
+    norm_out = " ".join(res_conv.output.split())
+    assert "Next Steps" in norm_out
+    assert "Wall Yplus" in norm_out
 
 
 def test_preview_figure_render_offscreen(synthetic_ork_file: Path) -> None:
@@ -112,6 +115,7 @@ def test_help_texts_complete() -> None:
     """Verify every GUI section and control option has a thorough help entry."""
     expected_keys = {
         "sec_input", "stage_selection", "sec_physics", "sec_cad", "sec_deliverables",
+        "sec_next_steps",
         "mach", "altitude", "aoa", "yplus", "regime", "mesh_preset", "cores", "iterations",
         "domain_mode", "enclosure_shape", "blunt_radius", "step_schema",
         "include_bois", "fin_fillets", "rail_buttons", "launch_lugs",
@@ -135,8 +139,10 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 27
+        assert len(app._info_icons) == 28
         assert app.btn_view_cad is not None
+        assert app.btn_ansys_guide is not None
+        assert "Wall Yplus" in app.lbl_next_steps.cget("text")
         app.var_out_dir.set(str(tmp_path / "gui_out"))
         cfg = app._collect_config()
         assert cfg.flight.mach == 0.8
@@ -145,7 +151,7 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
         app._toggle_theme()
         assert "Re_L=" in app.lbl_physics_summary.cget("text")
 
-        # Smoke-test hover tooltip and click-to-pin popup
+        # Smoke-test hover tooltip, click-to-pin popup, and ANSYS Results Guide window
         icon = app._info_icons[0]
         icon.show_tooltip()
         assert icon._tooltip_win is not None
@@ -154,6 +160,9 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
         dlg = icon.open_dialog()
         if dlg is not None:
             dlg.destroy()
+        guide_dlg = app._on_open_ansys_guide()
+        if guide_dlg is not None:
+            guide_dlg.destroy()
     finally:
         app.destroy()
 

@@ -11,6 +11,7 @@ from ..models.cfd import DomainMode, PipelineConfig
 from ..models.results import BoundaryLayerReport, SolverRecommendation
 from ..models.rocket import RocketModel
 from .detector import AnsysInstallation
+from .next_steps import build_ansys_next_steps_markdown
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -59,6 +60,8 @@ def generate_ansys_scripts(
 
     wbpj_target = wbpj_path or (output_dir / f"{stem}_cfd.wbpj")
     wbpz_target = wbpz_path or (output_dir / f"{stem}_cfd.wbpz")
+    sym_mult = _symmetry_multiplier(rocket, config.domain.mode)
+    wbpj_name = wbpj_target.name if config.deliverables.build_wbpj else None
 
     context = {
         "rocket": rocket,
@@ -73,7 +76,7 @@ def generate_ansys_scripts(
         "step_filename": step_path.name,
         "manifest_filename": manifest_path.name,
         "wbpj_path": str(wbpj_target.resolve()),
-        "wbpj_filename": wbpj_target.name if config.deliverables.build_wbpj else None,
+        "wbpj_filename": wbpj_name,
         "wbpz_path": str(wbpz_target.resolve()),
         "archive_wbpz": config.deliverables.archive_wbpz,
         "ansys_version": version_code,
@@ -83,7 +86,16 @@ def generate_ansys_scripts(
         "wbjn_filename": "create_project.wbjn",
         "meshing_jou_filename": "fluent_meshing.jou",
         "solver_jou_filename": "fluent_solver.jou",
-        "symmetry_multiplier": _symmetry_multiplier(rocket, config.domain.mode),
+        "symmetry_multiplier": sym_mult,
+        "next_steps_md": build_ansys_next_steps_markdown(
+            rocket=rocket,
+            stem=stem,
+            config=config,
+            bl=bl,
+            solver_rec=solver_rec,
+            sym_multiplier=sym_mult,
+            wbpj_filename=wbpj_name,
+        ),
         "math": math,
     }
 
