@@ -1,0 +1,109 @@
+"""Result DTOs returned by physics, geometry validation, and pipeline execution."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .cfd import FlowRegime
+from .rocket import RocketModel
+
+
+@dataclass(frozen=True)
+class AtmosphereState:
+    """ISA atmospheric properties at flight altitude."""
+
+    altitude_m: float
+    temperature_k: float
+    pressure_pa: float
+    density_kg_m3: float
+    viscosity_pa_s: float
+    speed_of_sound_m_s: float
+
+
+@dataclass(frozen=True)
+class BoundaryLayerReport:
+    """Computed Reynolds number, y+ sizing, prism mesh parameters, and cell budget."""
+
+    atmosphere: AtmosphereState
+    velocity_m_s: float
+    mach: float
+    reynolds_length: float
+    reynolds_diameter: float
+    skin_friction_cf: float
+    wall_shear_pa: float
+    friction_velocity_m_s: float
+    target_yplus: float
+    first_cell_center_m: float
+    first_layer_thickness_m: float
+    bl_thickness_99_m: float
+    prism_layers: int
+    prism_growth_rate: float
+    surface_min_size_m: float
+    surface_max_size_m: float
+    boi_nearfield_size_m: float
+    boi_wake_size_m: float
+    farfield_max_size_m: float
+    estimated_cell_count: int
+    exceeds_student_limit: bool
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class SolverRecommendation:
+    """Flow-regime-aware Fluent solver and domain sizing recommendations."""
+
+    regime: FlowRegime
+    solver_type: str  # "pressure-based" | "density-based"
+    energy_enabled: bool
+    fluid_model: str  # "constant" | "ideal-gas"
+    viscosity_model: str  # "constant" | "sutherland"
+    turbulence_model: str  # "k-omega-sst"
+    compressibility_effects: bool
+    roughness_height_m: float
+    inlet_bc_type: str
+    outlet_bc_type: str
+    farfield_bc_type: str
+    recommended_upstream_L: float
+    recommended_downstream_L: float
+    recommended_radial_L: float
+    courant_number: float
+    notes: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class GeometryReport:
+    """B-Rep validation diagnostics for constructed OML / fluid domain geometry."""
+
+    is_valid: bool
+    is_watertight: bool
+    solid_count: int
+    free_edge_count: int
+    min_edge_length_m: float
+    sliver_face_count: int
+    oml_volume_m3: float
+    oml_wetted_area_m2: float
+    oml_frontal_area_m2: float
+    domain_volume_m3: float
+    bbox_min_m: tuple[float, float, float]
+    bbox_max_m: tuple[float, float, float]
+    named_selections: dict[str, int] = field(default_factory=dict)
+    boi_names: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class PackageResult:
+    """Complete output package produced by the ork2cfd pipeline."""
+
+    rocket: RocketModel
+    bl_report: BoundaryLayerReport
+    solver_rec: SolverRecommendation
+    geometry_report: GeometryReport | None
+    output_dir: Path
+    step_path: Path | None = None
+    manifest_path: Path | None = None
+    script_paths: dict[str, Path] = field(default_factory=dict)
+    wbpj_path: Path | None = None
+    wbpz_path: Path | None = None
+    warnings: tuple[str, ...] = field(default_factory=tuple)

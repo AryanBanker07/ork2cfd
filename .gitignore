@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# CAD / CFD outputs & ANSYS artifacts
+output/
+outputs/
+*.step
+*.stp
+*.wbpj
+*.wbpz
+*_files/
+*.msh
+*.msh.h5
+*.cas
+*.cas.h5
+*.dat
+*.dat.h5
+*.trn
+*.log
+cleanup-fluent-*.bat
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

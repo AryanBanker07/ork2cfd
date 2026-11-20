@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ork2cfd"
+version = "0.1.0"
+description = "Convert OpenRocket (.ork) rocket designs into CFD-ready STEP geometry, ANSYS Fluent scripts, and Workbench projects via a desktop GUI."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "build123d>=0.7.0",
+    "customtkinter>=5.2.0",
+    "jinja2>=3.1.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+]
+fluent = [
+    "ansys-fluent-core>=0.20.0",
+]
+
+[project.scripts]
+ork2cfd = "ork2cfd.cli:main"
+ork2cfd-gui = "ork2cfd.gui.app:launch_gui"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ork2cfd = ["ansys/templates/*.j2"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "ansys: live ANSYS 2025 R2 integration tests requiring local ANSYS installation",
+]
