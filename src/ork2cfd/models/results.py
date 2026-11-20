@@ -102,6 +102,7 @@ class PackageResult:
     geometry_report: GeometryReport | None
     output_dir: Path
     step_path: Path | None = None
+    stl_path: Path | None = None
     manifest_path: Path | None = None
     script_paths: dict[str, Path] = field(default_factory=dict)
     wbpj_path: Path | None = None

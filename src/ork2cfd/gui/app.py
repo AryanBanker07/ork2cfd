@@ -86,6 +86,7 @@ class Ork2CfdApp(ctk.CTk):
         self.var_lugs = ctk.BooleanVar(value=False)
 
         self.var_step = ctk.BooleanVar(value=True)
+        self.var_stl = ctk.BooleanVar(value=False)
         self.var_scripts = ctk.BooleanVar(value=True)
         self.var_wbpj = ctk.BooleanVar(value=self._ansys_install is not None)
         self.var_wbpz = ctk.BooleanVar(value=False)
@@ -359,6 +360,10 @@ class Ork2CfdApp(ctk.CTk):
             card.body, 3, 1, "Archive .wbpz", self.var_wbpz,
             help_key="deliv_wbpz", icon_registry=self._info_icons,
         )
+        add_labeled_checkbox(
+            card.body, 4, 0, "Export Multi-Region .stl", self.var_stl,
+            help_key="deliv_stl", icon_registry=self._info_icons,
+        )
 
     def _toggle_theme(self) -> None:
         dark = self.var_dark.get()
@@ -449,6 +454,7 @@ class Ork2CfdApp(ctk.CTk):
         )
         deliverables = DeliverableConfig(
             export_step=self.var_step.get(),
+            export_stl=self.var_stl.get(),
             generate_scripts=self.var_scripts.get(),
             build_wbpj=self.var_wbpj.get(),
             archive_wbpz=self.var_wbpz.get(),
@@ -533,6 +539,8 @@ class Ork2CfdApp(ctk.CTk):
             )
         if res.step_path:
             self._append_log(f"[OK] STEP: {res.step_path.name}")
+        if res.stl_path:
+            self._append_log(f"[OK] STL: {res.stl_path.name}")
         if res.script_paths:
             self._append_log(f"[OK] Scripts: {', '.join(res.script_paths.keys())}")
         if res.wbpj_path:

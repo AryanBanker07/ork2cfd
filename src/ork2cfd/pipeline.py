@@ -11,6 +11,7 @@ from .ansys.script_generator import generate_ansys_scripts
 from .ansys.workbench_builder import build_workbench_project
 from .geometry.domain_builder import build_cfd_domain
 from .geometry.step_exporter import export_step_with_names
+from .geometry.stl_exporter import export_stl_with_regions
 from .models.cfd import PipelineConfig
 from .models.results import GeometryReport, PackageResult
 from .parser.ork_parser import parse_ork_file
@@ -52,6 +53,7 @@ def run_pipeline(
     warnings.extend(bl.warnings)
 
     step_path: Path | None = None
+    stl_path: Path | None = None
     manifest_path: Path | None = None
     geom_report: GeometryReport | None = None
 
@@ -60,23 +62,34 @@ def run_pipeline(
         or cfg.deliverables.generate_scripts
         or cfg.deliverables.build_wbpj
     )
-    if need_step:
+    need_domain = need_step or cfg.deliverables.export_stl
+    if need_domain:
         _emit("Building watertight 3D OML, fluid domain, and BOIs...", 0.35)
         domain_out = build_cfd_domain(rocket, cfg.cad, cfg.domain, solver_rec)
         geom_report = domain_out.report
         warnings.extend(geom_report.warnings)
 
-        _emit("Exporting XCAF STEP with Named Selections...", 0.58)
-        step_target = out_dir / f"{stem}_cfd.step"
-        manifest_target = out_dir / f"{stem}_manifest.json"
-        step_path, manifest_path = export_step_with_names(
-            domain_out=domain_out,
-            step_path=step_target,
-            manifest_path=manifest_target,
-            rocket=rocket,
-            cad_config=cfg.cad,
-            domain_config=cfg.domain,
-        )
+        if need_step:
+            _emit("Exporting XCAF STEP with Named Selections...", 0.55)
+            step_target = out_dir / f"{stem}_cfd.step"
+            manifest_target = out_dir / f"{stem}_manifest.json"
+            step_path, manifest_path = export_step_with_names(
+                domain_out=domain_out,
+                step_path=step_target,
+                manifest_path=manifest_target,
+                rocket=rocket,
+                cad_config=cfg.cad,
+                domain_config=cfg.domain,
+            )
+
+        if cfg.deliverables.export_stl:
+            _emit("Exporting multi-region CFD STL mesh...", 0.64)
+            stl_target = out_dir / f"{stem}_cfd.stl"
+            stl_path, _tri_count = export_stl_with_regions(
+                domain_out=domain_out,
+                stl_path=stl_target,
+                cad_config=cfg.cad,
+            )
 
     ansys_install = select_best_installation(cfg.deliverables.ansys_version)
     wbpj_target = out_dir / f"{stem}_cfd.wbpj"
@@ -132,6 +145,7 @@ def run_pipeline(
         geometry_report=geom_report,
         output_dir=out_dir,
         step_path=step_path,
+        stl_path=stl_path,
         manifest_path=manifest_path,
         script_paths=script_paths,
         wbpj_path=wbpj_out,

@@ -109,7 +109,7 @@ def test_help_texts_complete() -> None:
         "mach", "altitude", "aoa", "yplus", "regime", "mesh_preset", "cores", "iterations",
         "domain_mode", "enclosure_shape", "blunt_radius", "step_schema",
         "include_bois", "fin_fillets", "rail_buttons", "launch_lugs",
-        "deliv_step", "deliv_scripts", "deliv_wbpj", "deliv_wbpz",
+        "deliv_step", "deliv_stl", "deliv_scripts", "deliv_wbpj", "deliv_wbpz",
     }
     assert expected_keys.issubset(HELP_TEXTS.keys())
     for key in expected_keys:
@@ -129,7 +129,7 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 24
+        assert len(app._info_icons) == 25
         app.var_out_dir.set(str(tmp_path / "gui_out"))
         cfg = app._collect_config()
         assert cfg.flight.mach == 0.8
@@ -149,3 +149,50 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
             dlg.destroy()
     finally:
         app.destroy()
+
+
+def test_pipeline_stl_only(synthetic_ork_file: Path, tmp_path: Path) -> None:
+    cfg = PipelineConfig(
+        domain=DomainConfig(mode=DomainMode.OML_ONLY),
+        flight=FlightCondition(mach=0.8),
+        deliverables=DeliverableConfig(
+            export_step=False,
+            export_stl=True,
+            generate_scripts=False,
+            build_wbpj=False,
+        ),
+    )
+
+    res = run_pipeline(
+        ork_path=synthetic_ork_file,
+        output_dir=tmp_path / "stl_only",
+        config=cfg,
+    )
+
+    assert res.step_path is None
+    assert res.manifest_path is None
+    assert res.stl_path is not None and res.stl_path.exists()
+    assert res.geometry_report is not None and res.geometry_report.is_valid
+    assert "solid rocket_nosecone\n" in res.stl_path.read_text(encoding="utf-8")
+
+
+def test_cli_convert_with_stl(synthetic_ork_file: Path, tmp_path: Path) -> None:
+    runner = CliRunner()
+    out_dir = tmp_path / "cli_stl_out"
+    res = runner.invoke(
+        cli_main,
+        [
+            "convert",
+            str(synthetic_ork_file),
+            "-o",
+            str(out_dir),
+            "--mode",
+            "oml_only",
+            "--stl",
+            "--no-wbpj",
+        ],
+    )
+    assert res.exit_code == 0
+    assert (out_dir / "TestRocket_cfd.step").exists()
+    assert (out_dir / "TestRocket_cfd.stl").exists()
+    assert "STL:" in res.output

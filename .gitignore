@@ -18,6 +18,7 @@ output/
 outputs/
 *.step
 *.stp
+*.stl
 *.wbpj
 *.wbpz
 *_files/

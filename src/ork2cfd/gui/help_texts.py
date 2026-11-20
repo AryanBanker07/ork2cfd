@@ -278,4 +278,14 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "workstation without broken relative file paths."
         ),
     ),
+    "deliv_stl": HelpEntry(
+        title="Deliverable: Multi-Region .stl Mesh",
+        body=(
+            "Exports an ASCII .stl surface tessellation in SI meters with separate named "
+            "solid regions (e.g., rocket_nosecone, rocket_body, rocket_fins, inlet, "
+            "outlet, farfield).\n\n"
+            "Useful for ANSYS Fluent Fault-Tolerant Meshing, quick geometry checks, or "
+            "external CFD meshers such as OpenFOAM snappyHexMesh and cfMesh."
+        ),
+    ),
 }

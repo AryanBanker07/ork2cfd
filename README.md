@@ -13,6 +13,8 @@ Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready
   - Merges consecutive collinear body tubes into single smooth faces and fits curved nosecones/transitions (Haack / Von Kármán, Ogive, Ellipsoid, Parabolic, Power) to smooth B-splines.
   - Rotates the body revolution seam away from fin planes, embeds fin roots cleanly, blunts nose tips, and supports `square`, `rounded`, `airfoil`, and `double-wedge` fin profiles + cant.
   - Exports full 3D Fluid Domain, Half Symmetry (180°), Sector Symmetry ($1/N_{\text{fins}}$), 2D Axisymmetric, or OML-only STEP files with embedded OCCT XCAF Named Selections (`farfield`, `inlet`, `outlet`, `symmetry`, `rocket_nosecone`, `rocket_body`, `rocket_boattail`, `rocket_fins`, `rocket_base`) and `boi_nearfield` / `boi_wake` solids.
+- **Multi-Region CFD `.stl` Export (Optional)**:
+  - Export an ASCII `.stl` surface tessellation in SI meters with separate named solid regions (`solid <zone_name> ... endsolid <zone_name>`) for ANSYS Fluent Fault-Tolerant Meshing or OpenFOAM (`--stl` in CLI or GUI checkbox).
 - **Runnable ANSYS Scripts & Automated `.wbpj` Project**:
   - `run_fluent.py` (PyFluent Watertight Meshing → Poly-Hexcore + Prism → Solver → CSV)
   - `fluent_meshing.jou` & `fluent_solver.jou` (Fluent TUI journals for GUI or HPC)
@@ -43,8 +45,8 @@ ork2cfd inspect rocket.ork
 # Check y+ and boundary-layer sizing
 ork2cfd calc-bl rocket.ork --mach 0.85 --alt 500 --yplus 1.0
 
-# Generate STEP + ANSYS scripts + .wbpj Workbench project
-ork2cfd convert rocket.ork -o ./rocket_cfd --mach 0.85 --mode fluid_domain --shape bullet
+# Generate STEP (+ optional STL) + ANSYS scripts + .wbpj Workbench project
+ork2cfd convert rocket.ork -o ./rocket_cfd --mach 0.85 --mode fluid_domain --shape bullet --stl
 ```
 
 ## Testing

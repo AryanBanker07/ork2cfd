@@ -118,6 +118,7 @@ def inspect(ork_file: Path) -> None:
 @click.option("--fillets/--no-fillets", default=False)
 @click.option("--rail-buttons/--no-rail-buttons", default=False)
 @click.option("--launch-lugs/--no-launch-lugs", default=False)
+@click.option("--stl/--no-stl", default=False, help="Export multi-region ASCII STL mesh (m).")
 @click.option("--wbpj/--no-wbpj", default=True)
 @click.option("--wbpz/--no-wbpz", default=False)
 @click.option("--cores", type=int, default=4)
@@ -138,6 +139,7 @@ def convert(
     fillets: bool,
     rail_buttons: bool,
     launch_lugs: bool,
+    stl: bool,
     wbpj: bool,
     wbpz: bool,
     cores: int,
@@ -171,6 +173,7 @@ def convert(
         ),
         deliverables=DeliverableConfig(
             export_step=True,
+            export_stl=stl,
             generate_scripts=True,
             build_wbpj=wbpj,
             archive_wbpz=wbpz,
@@ -186,6 +189,8 @@ def convert(
     console.print(f"\n[bold green]Done![/] CFD package saved to: {res.output_dir}")
     if res.step_path:
         console.print(f"  STEP:      {res.step_path.name}")
+    if res.stl_path:
+        console.print(f"  STL:       {res.stl_path.name}")
     if res.wbpj_path:
         console.print(f"  Workbench: {res.wbpj_path.name}")
     if res.wbpz_path:

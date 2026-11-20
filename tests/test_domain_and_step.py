@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ork2cfd.geometry import build_cfd_domain, export_step_with_names
+from ork2cfd.geometry import build_cfd_domain, export_step_with_names, export_stl_with_regions
 from ork2cfd.models import (
     BoiConfig,
     CadConfig,
@@ -97,3 +97,36 @@ def test_cylinder_and_box_enclosures(
     assert ("inlet" in out.report.named_selections) is expected_inlet
     assert "outlet" in out.report.named_selections
     assert "farfield" in out.report.named_selections
+
+
+@pytest.mark.parametrize("mode", [DomainMode.OML_ONLY, DomainMode.FLUID_DOMAIN])
+def test_stl_multi_region_export(
+    synthetic_ork_file: Path,
+    tmp_path: Path,
+    mode: DomainMode,
+) -> None:
+    rocket = parse_ork_file(synthetic_ork_file)
+    rec = recommend_solver(rocket, FlightCondition(mach=0.8))
+    cad = CadConfig()
+    dom = DomainConfig(mode=mode, shape=EnclosureShape.BULLET, boi=BoiConfig(enabled=False))
+
+    out = build_cfd_domain(rocket, cad, dom, rec)
+    stl_out, tri_count = export_stl_with_regions(out, tmp_path / f"{mode.value}.stl", cad)
+
+    assert stl_out.exists()
+    assert tri_count > 100
+    text = stl_out.read_text(encoding="utf-8")
+    assert text.count("facet normal ") == tri_count
+    for region in ("rocket_nosecone", "rocket_body", "rocket_fins"):
+        assert f"solid {region}\n" in text
+        assert f"endsolid {region}\n" in text
+
+    if mode == DomainMode.FLUID_DOMAIN:
+        for boundary in ("outlet", "farfield"):
+            assert f"solid {boundary}\n" in text
+            assert f"endsolid {boundary}\n" in text
+
+    xs = [float(line.split()[1]) for line in text.splitlines() if "vertex " in line]
+    assert xs
+    assert min(xs) >= out.bbox_domain_min_m[0] - 0.01
+    assert max(xs) <= out.bbox_domain_max_m[0] + 0.01

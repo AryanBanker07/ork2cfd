@@ -55,6 +55,8 @@ class CadConfig:
     include_launch_lugs: bool = False
     step_schema: str = "AP214"
     curve_samples: int = 80
+    stl_linear_deflection_m: float = 0.0005
+    stl_angular_deflection_deg: float = 12.0
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,7 @@ class DeliverableConfig:
     """Output deliverables requested from the ork2cfd pipeline."""
 
     export_step: bool = True
+    export_stl: bool = False
     generate_scripts: bool = True
     build_wbpj: bool = True
     archive_wbpz: bool = False
