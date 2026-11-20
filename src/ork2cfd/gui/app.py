@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog
 
@@ -87,6 +88,7 @@ class Ork2CfdApp(ctk.CTk):
 
         self.var_step = ctk.BooleanVar(value=True)
         self.var_stl = ctk.BooleanVar(value=False)
+        self.var_verify = ctk.BooleanVar(value=True)
         self.var_scripts = ctk.BooleanVar(value=True)
         self.var_wbpj = ctk.BooleanVar(value=self._ansys_install is not None)
         self.var_wbpz = ctk.BooleanVar(value=False)
@@ -140,7 +142,7 @@ class Ork2CfdApp(ctk.CTk):
         btn_row = ctk.CTkFrame(bottom, fg_color="transparent")
         btn_row.grid(row=0, column=0, padx=10, pady=(10, 6), sticky="ew")
         btn_row.grid_columnconfigure(0, weight=2)
-        btn_row.grid_columnconfigure((1, 2), weight=1)
+        btn_row.grid_columnconfigure((1, 2, 3), weight=1)
 
         self.btn_generate = ctk.CTkButton(
             btn_row,
@@ -151,6 +153,16 @@ class Ork2CfdApp(ctk.CTk):
         )
         self.btn_generate.grid(row=0, column=0, padx=(0, 6), sticky="ew")
 
+        self.btn_view_cad = ctk.CTkButton(
+            btn_row,
+            text="View 3D CAD",
+            height=36,
+            state="disabled",
+            fg_color="#2563eb",
+            command=self._on_view_cad,
+        )
+        self.btn_view_cad.grid(row=0, column=1, padx=4, sticky="ew")
+
         self.btn_open_dir = ctk.CTkButton(
             btn_row,
             text="Open Output Folder",
@@ -159,7 +171,7 @@ class Ork2CfdApp(ctk.CTk):
             fg_color="#334155",
             command=self._on_open_folder,
         )
-        self.btn_open_dir.grid(row=0, column=1, padx=4, sticky="ew")
+        self.btn_open_dir.grid(row=0, column=2, padx=4, sticky="ew")
 
         self.btn_run_fluent = ctk.CTkButton(
             btn_row,
@@ -169,7 +181,7 @@ class Ork2CfdApp(ctk.CTk):
             fg_color="#0f766e",
             command=self._on_run_fluent,
         )
-        self.btn_run_fluent.grid(row=0, column=2, padx=(6, 0), sticky="ew")
+        self.btn_run_fluent.grid(row=0, column=3, padx=(6, 0), sticky="ew")
 
         self.log_box = ctk.CTkTextbox(
             bottom, height=130, font=ctk.CTkFont(family="Consolas", size=11)
@@ -364,6 +376,10 @@ class Ork2CfdApp(ctk.CTk):
             card.body, 4, 0, "Export Multi-Region .stl", self.var_stl,
             help_key="deliv_stl", icon_registry=self._info_icons,
         )
+        add_labeled_checkbox(
+            card.body, 4, 1, "CAD Viewer & Verify (.html/.png)", self.var_verify,
+            help_key="deliv_verify", icon_registry=self._info_icons,
+        )
 
     def _toggle_theme(self) -> None:
         dark = self.var_dark.get()
@@ -455,6 +471,7 @@ class Ork2CfdApp(ctk.CTk):
         deliverables = DeliverableConfig(
             export_step=self.var_step.get(),
             export_stl=self.var_stl.get(),
+            export_verification=self.var_verify.get(),
             generate_scripts=self.var_scripts.get(),
             build_wbpj=self.var_wbpj.get(),
             archive_wbpz=self.var_wbpz.get(),
@@ -526,6 +543,10 @@ class Ork2CfdApp(ctk.CTk):
         self._is_running = False
         self._last_result = res
         self.btn_generate.configure(state="normal", text="Generate CFD Package")
+        if res.viewer_html_path and res.viewer_html_path.exists():
+            self.btn_view_cad.configure(state="normal")
+        else:
+            self.btn_view_cad.configure(state="disabled")
         self.btn_open_dir.configure(state="normal")
         if self._ansys_install and self._ansys_install.fluent_exe:
             self.btn_run_fluent.configure(state="normal")
@@ -541,6 +562,16 @@ class Ork2CfdApp(ctk.CTk):
             self._append_log(f"[OK] STEP: {res.step_path.name}")
         if res.stl_path:
             self._append_log(f"[OK] STL: {res.stl_path.name}")
+        if res.viewer_html_path:
+            self._append_log(f"[OK] CAD Viewer: {res.viewer_html_path.name}")
+        if res.views_png_path:
+            self._append_log(f"[OK] Views PNG: {res.views_png_path.name}")
+        if res.verification_report:
+            vr = res.verification_report
+            n_pass = sum(1 for c in vr.checks if c.status == "PASS")
+            self._append_log(
+                f"[OK] Verification: {vr.overall_status} ({n_pass}/{len(vr.checks)} checks PASS)"
+            )
         if res.script_paths:
             self._append_log(f"[OK] Scripts: {', '.join(res.script_paths.keys())}")
         if res.wbpj_path:
@@ -555,6 +586,15 @@ class Ork2CfdApp(ctk.CTk):
         self.btn_generate.configure(state="normal", text="Generate CFD Package")
         self.progress.set(0.0)
         self._append_log(f"[ERROR] {exc}")
+
+    def _on_view_cad(self) -> None:
+        if (
+            self._last_result is not None
+            and self._last_result.viewer_html_path is not None
+            and self._last_result.viewer_html_path.exists()
+        ):
+            webbrowser.open(self._last_result.viewer_html_path.resolve().as_uri())
+            self._append_log("[OK] Opened 3D CAD viewer in browser.")
 
     def _on_open_folder(self) -> None:
         out_str = self.var_out_dir.get().strip()

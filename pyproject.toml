@@ -40,7 +40,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-ork2cfd = ["ansys/templates/*.j2"]
+ork2cfd = ["ansys/templates/*.j2", "geometry/templates/*.j2"]
 
 [tool.ruff]
 line-length = 100

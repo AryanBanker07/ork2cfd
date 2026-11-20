@@ -18,6 +18,8 @@ from .results import (
     GeometryReport,
     PackageResult,
     SolverRecommendation,
+    VerificationCheck,
+    VerificationReport,
 )
 from .rocket import (
     BodyComponent,
@@ -54,4 +56,6 @@ __all__ = [
     "SolverRecommendation",
     "Stage",
     "SurfaceFinish",
+    "VerificationCheck",
+    "VerificationReport",
 ]

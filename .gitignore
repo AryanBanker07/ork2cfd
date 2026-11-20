@@ -19,6 +19,10 @@ outputs/
 *.step
 *.stp
 *.stl
+*_cad_viewer.html
+*_cad_views.png
+*_verification.json
+*_verification.md
 *.wbpj
 *.wbpz
 *_files/

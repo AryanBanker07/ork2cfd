@@ -103,6 +103,7 @@ class DeliverableConfig:
 
     export_step: bool = True
     export_stl: bool = False
+    export_verification: bool = True
     generate_scripts: bool = True
     build_wbpj: bool = True
     archive_wbpz: bool = False

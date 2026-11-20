@@ -15,6 +15,9 @@ Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready
   - Exports full 3D Fluid Domain, Half Symmetry (180°), Sector Symmetry ($1/N_{\text{fins}}$), 2D Axisymmetric, or OML-only STEP files with embedded OCCT XCAF Named Selections (`farfield`, `inlet`, `outlet`, `symmetry`, `rocket_nosecone`, `rocket_body`, `rocket_boattail`, `rocket_fins`, `rocket_base`) and `boi_nearfield` / `boi_wake` solids.
 - **Multi-Region CFD `.stl` Export (Optional)**:
   - Export an ASCII `.stl` surface tessellation in SI meters with separate named solid regions (`solid <zone_name> ... endsolid <zone_name>`) for ANSYS Fluent Fault-Tolerant Meshing or OpenFOAM (`--stl` in CLI or GUI checkbox).
+- **Interactive 3D CAD Viewer & Automated Verification Pack**:
+  - Generates `<stem>_cad_viewer.html` (offline WebGL 3D viewer with orbit/pan/zoom, X/Y/Z section clip plane, wireframe overlay, domain X-ray opacity slider, and Named Selection toggles), `<stem>_cad_views.png` (4-view CAD vs. `.ork` overlay diagnostic sheet), and `<stem>_verification.{json,md}` (`PASS`/`WARN`/`FAIL` B-Rep, dimensional fidelity, and STEP round-trip audit).
+  - Open directly via the **View 3D CAD** button in the GUI or `ork2cfd verify <rocket.ork | model.step> --open`.
 - **Runnable ANSYS Scripts & Automated `.wbpj` Project**:
   - `run_fluent.py` (PyFluent Watertight Meshing → Poly-Hexcore + Prism → Solver → CSV)
   - `fluent_meshing.jou` & `fluent_solver.jou` (Fluent TUI journals for GUI or HPC)
@@ -45,8 +48,11 @@ ork2cfd inspect rocket.ork
 # Check y+ and boundary-layer sizing
 ork2cfd calc-bl rocket.ork --mach 0.85 --alt 500 --yplus 1.0
 
-# Generate STEP (+ optional STL) + ANSYS scripts + .wbpj Workbench project
+# Generate STEP (+ optional STL) + CAD viewer/verification + ANSYS scripts + .wbpj
 ork2cfd convert rocket.ork -o ./rocket_cfd --mach 0.85 --mode fluid_domain --shape bullet --stl
+
+# Verify & inspect any .ork design or exported .step file in 3D HTML + 4-view PNG
+ork2cfd verify rocket.ork -o ./verify_out --mode fluid_domain --open
 ```
 
 ## Testing

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from OCP.BRep import BRep_Tool
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
+from OCP.BRepTools import BRepTools
 from OCP.TopAbs import TopAbs_REVERSED
 from OCP.TopLoc import TopLoc_Location
 
@@ -85,6 +86,7 @@ def export_stl_with_regions(
     lin_deflection_mm = max(cad_config.stl_linear_deflection_m * 1000.0, 0.01)
     ang_deflection_rad = math.radians(max(cad_config.stl_angular_deflection_deg, 1.0))
 
+    BRepTools.Clean_s(domain_out.main_shape)
     BRepMesh_IncrementalMesh(
         domain_out.main_shape,
         lin_deflection_mm,

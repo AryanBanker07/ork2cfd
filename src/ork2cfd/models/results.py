@@ -93,6 +93,32 @@ class GeometryReport:
 
 
 @dataclass(frozen=True)
+class VerificationCheck:
+    """Single quantitative CAD verification check result."""
+
+    name: str
+    status: str  # "PASS" | "WARN" | "FAIL"
+    measured: str
+    expected: str
+    details: str = ""
+
+
+@dataclass(frozen=True)
+class VerificationReport:
+    """Aggregate CAD quality, dimensional fidelity, and STEP round-trip audit."""
+
+    overall_status: str  # "PASS" | "WARN" | "FAIL"
+    checks: tuple[VerificationCheck, ...]
+    zone_areas_m2: dict[str, float] = field(default_factory=dict)
+    zone_face_counts: dict[str, int] = field(default_factory=dict)
+    zone_triangle_counts: dict[str, int] = field(default_factory=dict)
+    oml_bbox_min_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    oml_bbox_max_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    step_roundtrip_ok: bool | None = None
+    summary_notes: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class PackageResult:
     """Complete output package produced by the ork2cfd pipeline."""
 
@@ -107,4 +133,9 @@ class PackageResult:
     script_paths: dict[str, Path] = field(default_factory=dict)
     wbpj_path: Path | None = None
     wbpz_path: Path | None = None
+    verification_report: VerificationReport | None = None
+    viewer_html_path: Path | None = None
+    views_png_path: Path | None = None
+    verification_json_path: Path | None = None
+    verification_md_path: Path | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)

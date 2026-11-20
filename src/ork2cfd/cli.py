@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import webbrowser
 from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
 
+from .geometry import (
+    export_cad_viewer_html,
+    export_cad_views_png,
+    load_step_for_verification,
+    tessellate_domain_zones,
+    verify_cad_model,
+    write_verification_reports,
+)
 from .models.cfd import (
     BoiConfig,
     CadConfig,
@@ -119,6 +128,11 @@ def inspect(ork_file: Path) -> None:
 @click.option("--rail-buttons/--no-rail-buttons", default=False)
 @click.option("--launch-lugs/--no-launch-lugs", default=False)
 @click.option("--stl/--no-stl", default=False, help="Export multi-region ASCII STL mesh (m).")
+@click.option(
+    "--verify/--no-verify",
+    default=True,
+    help="Generate 3D HTML CAD viewer, 4-view PNG, and verification report.",
+)
 @click.option("--wbpj/--no-wbpj", default=True)
 @click.option("--wbpz/--no-wbpz", default=False)
 @click.option("--cores", type=int, default=4)
@@ -140,6 +154,7 @@ def convert(
     rail_buttons: bool,
     launch_lugs: bool,
     stl: bool,
+    verify: bool,
     wbpj: bool,
     wbpz: bool,
     cores: int,
@@ -174,6 +189,7 @@ def convert(
         deliverables=DeliverableConfig(
             export_step=True,
             export_stl=stl,
+            export_verification=verify,
             generate_scripts=True,
             build_wbpj=wbpj,
             archive_wbpz=wbpz,
@@ -191,6 +207,14 @@ def convert(
         console.print(f"  STEP:      {res.step_path.name}")
     if res.stl_path:
         console.print(f"  STL:       {res.stl_path.name}")
+    if res.viewer_html_path:
+        console.print(f"  Viewer:    {res.viewer_html_path.name}")
+    if res.views_png_path:
+        console.print(f"  Views:     {res.views_png_path.name}")
+    if res.verification_report:
+        vr = res.verification_report
+        n_pass = sum(1 for c in vr.checks if c.status == "PASS")
+        console.print(f"  Verify:    {vr.overall_status} ({n_pass}/{len(vr.checks)} checks PASS)")
     if res.wbpj_path:
         console.print(f"  Workbench: {res.wbpj_path.name}")
     if res.wbpz_path:
@@ -221,3 +245,108 @@ def calc_bl(ork_file: Path, mach: float, altitude_m: float, target_yplus: float)
         f"  Solver: {rec.solver_type} | {rec.fluid_model} | {rec.turbulence_model} | "
         f"Est. cells ~{bl.estimated_cell_count:,}"
     )
+
+
+@main.command()
+@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
+@click.option("-o", "--output", "out_dir", type=click.Path(path_type=Path), default=None)
+@click.option(
+    "--mode",
+    type=click.Choice([m.value for m in DomainMode]),
+    default=DomainMode.FLUID_DOMAIN.value,
+)
+@click.option(
+    "--shape",
+    type=click.Choice([s.value for s in EnclosureShape]),
+    default=EnclosureShape.BULLET.value,
+)
+@click.option("--open/--no-open", "open_browser", default=False, help="Open 3D HTML viewer.")
+def verify(
+    input_file: Path,
+    out_dir: Path | None,
+    mode: str,
+    shape: str,
+    open_browser: bool,
+) -> None:
+    """Verify an .ork or .step CAD model and generate 3D HTML viewer & 4-view PNG."""
+    suffix = input_file.suffix.lower()
+    if suffix in {".step", ".stp"}:
+        stem = sanitize_stem(input_file.stem)
+        target_dir = out_dir or (input_file.parent / f"{stem}_verify")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        console.print(f"[cyan]Loading STEP geometry:[/] {input_file}")
+        domain_out = load_step_for_verification(input_file)
+        zone_meshes = tessellate_domain_zones(domain_out, relative=True, include_bois=True)
+        vr = verify_cad_model(
+            domain_out=domain_out,
+            zone_meshes=zone_meshes,
+            step_path=input_file,
+        )
+        viewer_html = export_cad_viewer_html(
+            zone_meshes=zone_meshes,
+            verification_report=vr,
+            html_path=target_dir / f"{stem}_cad_viewer.html",
+            model_name=stem,
+            domain_out=domain_out,
+        )
+        views_png = export_cad_views_png(
+            zone_meshes=zone_meshes,
+            verification_report=vr,
+            png_path=target_dir / f"{stem}_cad_views.png",
+            model_name=stem,
+            domain_out=domain_out,
+        )
+        json_p, md_p = write_verification_reports(
+            report=vr,
+            json_path=target_dir / f"{stem}_verification.json",
+            md_path=target_dir / f"{stem}_verification.md",
+            model_name=stem,
+            step_path=input_file,
+            viewer_html_path=viewer_html,
+            views_png_path=views_png,
+        )
+    else:
+        rocket = parse_ork_file(input_file)
+        target_dir = out_dir or (input_file.parent / f"{sanitize_stem(rocket.name)}_verify")
+        cfg = PipelineConfig(
+            domain=DomainConfig(mode=DomainMode(mode), shape=EnclosureShape(shape)),
+            deliverables=DeliverableConfig(
+                export_step=True,
+                export_stl=False,
+                export_verification=True,
+                generate_scripts=False,
+                build_wbpj=False,
+            ),
+        )
+        res = run_pipeline(
+            ork_path=input_file,
+            output_dir=target_dir,
+            config=cfg,
+            progress_callback=lambda m, f: console.print(f"[cyan][{int(f*100):3d}%][/] {m}"),
+        )
+        assert res.verification_report is not None
+        vr = res.verification_report
+        viewer_html = res.viewer_html_path
+        views_png = res.views_png_path
+        json_p = res.verification_json_path
+        md_p = res.verification_md_path
+
+    table = Table(title=f"CAD Verification Scorecard ({vr.overall_status})")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status", style="bold")
+    table.add_column("Measured")
+    table.add_column("Expected")
+    for chk in vr.checks:
+        col = "green" if chk.status == "PASS" else ("yellow" if chk.status == "WARN" else "red")
+        table.add_row(chk.name, f"[{col}]{chk.status}[/]", chk.measured, chk.expected)
+    console.print(table)
+    console.print(f"  Output Dir: {target_dir}")
+    if viewer_html:
+        console.print(f"  3D Viewer:  {viewer_html.name}")
+    if views_png:
+        console.print(f"  4-View PNG: {views_png.name}")
+    if json_p and md_p:
+        console.print(f"  Reports:    {json_p.name}, {md_p.name}")
+
+    if open_browser and viewer_html is not None and viewer_html.exists():
+        webbrowser.open(viewer_html.resolve().as_uri())

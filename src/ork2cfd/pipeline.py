@@ -12,8 +12,11 @@ from .ansys.workbench_builder import build_workbench_project
 from .geometry.domain_builder import build_cfd_domain
 from .geometry.step_exporter import export_step_with_names
 from .geometry.stl_exporter import export_stl_with_regions
+from .geometry.tessellation import tessellate_domain_zones
+from .geometry.verifier import verify_cad_model, write_verification_reports
+from .geometry.viewer_exporter import export_cad_viewer_html, export_cad_views_png
 from .models.cfd import PipelineConfig
-from .models.results import GeometryReport, PackageResult
+from .models.results import GeometryReport, PackageResult, VerificationReport
 from .parser.ork_parser import parse_ork_file
 from .physics.boundary_layer import compute_boundary_layer
 from .physics.regime import recommend_solver
@@ -56,13 +59,22 @@ def run_pipeline(
     stl_path: Path | None = None
     manifest_path: Path | None = None
     geom_report: GeometryReport | None = None
+    verification_report: VerificationReport | None = None
+    viewer_html_path: Path | None = None
+    views_png_path: Path | None = None
+    verification_json_path: Path | None = None
+    verification_md_path: Path | None = None
 
     need_step = (
         cfg.deliverables.export_step
         or cfg.deliverables.generate_scripts
         or cfg.deliverables.build_wbpj
     )
-    need_domain = need_step or cfg.deliverables.export_stl
+    need_domain = (
+        need_step
+        or cfg.deliverables.export_stl
+        or cfg.deliverables.export_verification
+    )
     if need_domain:
         _emit("Building watertight 3D OML, fluid domain, and BOIs...", 0.35)
         domain_out = build_cfd_domain(rocket, cfg.cad, cfg.domain, solver_rec)
@@ -83,13 +95,56 @@ def run_pipeline(
             )
 
         if cfg.deliverables.export_stl:
-            _emit("Exporting multi-region CFD STL mesh...", 0.64)
+            _emit("Exporting multi-region CFD STL mesh...", 0.62)
             stl_target = out_dir / f"{stem}_cfd.stl"
             stl_path, _tri_count = export_stl_with_regions(
                 domain_out=domain_out,
                 stl_path=stl_target,
                 cad_config=cfg.cad,
             )
+
+        if cfg.deliverables.export_verification:
+            _emit("Verifying CAD model & generating 3D viewer and diagnostic views...", 0.68)
+            zone_meshes = tessellate_domain_zones(domain_out, relative=True, include_bois=True)
+            verification_report = verify_cad_model(
+                domain_out=domain_out,
+                zone_meshes=zone_meshes,
+                rocket=rocket,
+                cad_config=cfg.cad,
+                domain_config=cfg.domain,
+                step_path=step_path,
+                stl_path=stl_path,
+            )
+            viewer_html_path = export_cad_viewer_html(
+                zone_meshes=zone_meshes,
+                verification_report=verification_report,
+                html_path=out_dir / f"{stem}_cad_viewer.html",
+                model_name=rocket.name,
+                domain_out=domain_out,
+                rocket=rocket,
+            )
+            views_png_path = export_cad_views_png(
+                zone_meshes=zone_meshes,
+                verification_report=verification_report,
+                png_path=out_dir / f"{stem}_cad_views.png",
+                model_name=rocket.name,
+                domain_out=domain_out,
+                rocket=rocket,
+            )
+            verification_json_path, verification_md_path = write_verification_reports(
+                report=verification_report,
+                json_path=out_dir / f"{stem}_verification.json",
+                md_path=out_dir / f"{stem}_verification.md",
+                model_name=rocket.name,
+                step_path=step_path,
+                viewer_html_path=viewer_html_path,
+                views_png_path=views_png_path,
+            )
+            for chk in verification_report.checks:
+                if chk.status == "FAIL":
+                    warnings.append(
+                        f"CAD Verification FAIL [{chk.name}]: {chk.details or chk.measured}"
+                    )
 
     ansys_install = select_best_installation(cfg.deliverables.ansys_version)
     wbpj_target = out_dir / f"{stem}_cfd.wbpj"
@@ -150,5 +205,10 @@ def run_pipeline(
         script_paths=script_paths,
         wbpj_path=wbpj_out,
         wbpz_path=wbpz_out,
+        verification_report=verification_report,
+        viewer_html_path=viewer_html_path,
+        views_png_path=views_png_path,
+        verification_json_path=verification_json_path,
+        verification_md_path=verification_md_path,
         warnings=tuple(dict.fromkeys(warnings)),
     )

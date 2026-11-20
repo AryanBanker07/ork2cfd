@@ -288,4 +288,18 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "external CFD meshers such as OpenFOAM snappyHexMesh and cfMesh."
         ),
     ),
+    "deliv_verify": HelpEntry(
+        title="Deliverable: 3D CAD Viewer & Verification Pack",
+        body=(
+            "Automatically runs quantitative CAD checks (watertightness, free edges, sliver "
+            "faces, .ork axial/radial dimensions, Named Selections, and XCAF STEP "
+            "round-trip re-import) and generates four inspection files:\n"
+            "• <rocket>_cad_viewer.html — Offline WebGL 3D viewer with orbit/pan/zoom, "
+            "X/Y/Z section clip plane, wireframe toggle, and Named Selection isolation.\n"
+            "• <rocket>_cad_views.png — 4-view sheet (3D iso, X-Y CAD vs .ork overlay, "
+            "Y-Z tail projection, and domain + verification scorecard).\n"
+            "• <rocket>_verification.json & .md — Machine- and human-readable PASS/WARN/FAIL "
+            "verification audit."
+        ),
+    ),
 }

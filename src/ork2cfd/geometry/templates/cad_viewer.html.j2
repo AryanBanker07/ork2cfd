@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+<style>
+  :root {
+    --bg: #0b1120;
+    --panel: #111827;
+    --card: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --pass: #22c55e;
+    --warn: #f59e0b;
+    --fail: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    height: 46px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .badge {
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+  }
+  .badge-PASS { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
+  .badge-WARN { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+  .badge-FAIL { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+  .header-meta { font-size: 12px; color: var(--muted); }
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  aside {
+    width: 375px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  aside.collapsed { display: none; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .card h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .kv-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 10px;
+    font-size: 12px;
+  }
+  .kv-label { color: var(--muted); font-size: 11px; }
+  .kv-val { font-family: Consolas, monospace; font-weight: 600; }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+    font-size: 12px;
+  }
+  .ctrl-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  select, button {
+    background: #0f172a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: #ffffff; }
+  button.active { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
+  .zone-list { display: flex; flex-direction: column; gap: 5px; }
+  .zone-item {
+    display: grid;
+    grid-template-columns: auto 12px 1fr auto;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.25); }
+  .zone-name { font-family: Consolas, monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+  .zone-stat { font-size: 10.5px; color: var(--muted); font-family: Consolas, monospace; }
+  .chk-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .chk-table th, .chk-table td {
+    text-align: left;
+    padding: 5px 4px;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+    vertical-align: top;
+  }
+  .chk-table th { color: var(--muted); font-weight: 600; }
+  .viewport {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    background: radial-gradient(circle at 50% 45%, #162238 0%, #090e1a 100%);
+  }
+  #glcanvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  #glcanvas:active { cursor: grabbing; }
+  .toolbar {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .toolbar > * { pointer-events: auto; }
+  #triad {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    width: 96px;
+    height: 96px;
+    pointer-events: none;
+  }
+  .hint {
+    position: absolute;
+    bottom: 12px;
+    right: 14px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <button id="btnTogglePanel" title="Toggle Inspector">☰ Panel</button>
+    <span>{{ title }}</span>
+    <span class="badge badge-{{ overall_status }}">VERIFY: {{ overall_status }}</span>
+  </div>
+  <div class="header-meta">{{ header_meta }}</div>
+</header>
+<main>
+  <aside id="sidebar">
+    <div class="card">
+      <h2>Geometry Metrics (SI Meters)</h2>
+      <div class="kv-grid" id="metricsGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>Section Clip Plane &amp; Opacity</h2>
+      <div class="ctrl-row">
+        <span>Domain / BOI α</span>
+        <input id="rngOpacity" type="range" min="0.02" max="0.85" step="0.02" value="0.16">
+        <span id="lblOpacity" class="kv-val">0.16</span>
+      </div>
+      <div class="ctrl-row">
+        <span>Clip Axis</span>
+        <select id="selClipAxis">
+          <option value="-1" selected>Off</option>
+          <option value="0">X (Axial)</option>
+          <option value="1">Y (Vertical)</option>
+          <option value="2">Z (Lateral)</option>
+        </select>
+        <button id="btnFlipClip">Flip</button>
+      </div>
+      <div class="ctrl-row">
+        <span>Clip Pos</span>
+        <input id="rngClipPos" type="range" min="0" max="1000" value="1000">
+        <span id="lblClipPos" class="kv-val">Off</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Named Selections &amp; BOIs</h2>
+      <div class="ctrl-row">
+        <button id="btnRocketOnly">Rocket OML Only</button>
+        <button id="btnShowAll">Show All Zones</button>
+      </div>
+      <div class="zone-list" id="zoneList"></div>
+    </div>
+
+    <div class="card">
+      <h2>CAD Verification Checks</h2>
+      <table class="chk-table">
+        <thead><tr><th>Check</th><th>Status</th><th>Measured / Expected</th></tr></thead>
+        <tbody id="checksBody"></tbody>
+      </table>
+    </div>
+  </aside>
+
+  <section class="viewport">
+    <canvas id="glcanvas"></canvas>
+    <div class="toolbar">
+      <button id="btnFocusRocket" class="active">Focus Rocket</button>
+      <button id="btnFitDomain">Fit Domain</button>
+      <button id="btnIso">Iso 3/4</button>
+      <button id="btnSide">Side (+Z)</button>
+      <button id="btnTop">Top (+Y)</button>
+      <button id="btnNose">Nose (+X)</button>
+      <button id="btnTail">Tail (-X)</button>
+      <button id="btnWire">Wireframe</button>
+    </div>
+    <canvas id="triad" width="96" height="96"></canvas>
+    <div class="hint">Left-drag: Orbit · Right/Shift-drag: Pan · Scroll: Zoom</div>
+  </section>
+</main>
+
+<script id="scene-data" type="application/json">{{ scene_json }}</script>
+<script>
+(() => {
+  const DATA = JSON.parse(document.getElementById("scene-data").textContent);
+
+  // Populate metrics
+  const metricsEl = document.getElementById("metricsGrid");
+  for (const [k, v] of DATA.metrics) {
+    const div = document.createElement("div");
+    div.innerHTML = `<div class="kv-label">${k}</div><div class="kv-val">${v}</div>`;
+    metricsEl.appendChild(div);
+  }
+
+  // Populate checks table
+  const tbody = document.getElementById("checksBody");
+  for (const chk of DATA.checks) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td><code>${chk.name}</code><div style="color:#94a3b8;font-size:10px">${chk.details}</div></td>` +
+      `<td><span class="badge badge-${chk.status}">${chk.status}</span></td>` +
+      `<td><div style="font-family:Consolas,monospace">${chk.measured}</div>` +
+      `<div style="color:#94a3b8;font-size:10px">exp: ${chk.expected}</div></td>`;
+    tbody.appendChild(tr);
+  }
+
+  // Decode base64 binary helpers
+  function decodeB64(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  const canvas = document.getElementById("glcanvas");
+  const gl = canvas.getContext("webgl", { antialias: true, alpha: true });
+  if (!gl) {
+    document.querySelector(".viewport").innerHTML =
+      '<p style="padding:24px;color:#f87171;">WebGL is unavailable in this browser context.</p>';
+    return;
+  }
+
+  const vsSrc = `
+    attribute vec3 aPos;
+    attribute vec3 aNorm;
+    uniform mat4 uMVP;
+    uniform mat4 uMV;
+    varying vec3 vNormCam;
+    varying vec3 vWorldPos;
+    void main() {
+      gl_Position = uMVP * vec4(aPos, 1.0);
+      vNormCam = normalize(mat3(uMV) * aNorm);
+      vWorldPos = aPos;
+    }
+  `;
+  const fsSrc = `
+    precision mediump float;
+    uniform vec4 uColor;
+    uniform int uClipAxis;
+    uniform float uClipPos;
+    uniform float uClipSign;
+    uniform float uUnlit;
+    varying vec3 vNormCam;
+    varying vec3 vWorldPos;
+    void main() {
+      if (uClipAxis == 0 && (vWorldPos.x - uClipPos) * uClipSign > 0.0) discard;
+      if (uClipAxis == 1 && (vWorldPos.y - uClipPos) * uClipSign > 0.0) discard;
+      if (uClipAxis == 2 && (vWorldPos.z - uClipPos) * uClipSign > 0.0) discard;
+      if (uUnlit > 0.5) {
+        gl_FragColor = uColor;
+        return;
+      }
+      vec3 n = normalize(vNormCam);
+      if (!gl_FrontFacing) n = -n;
+      vec3 l1 = normalize(vec3(0.45, 0.72, 0.52));
+      vec3 l2 = normalize(vec3(-0.6, -0.35, 0.7));
+      float d1 = max(dot(n, l1), 0.0);
+      float d2 = max(dot(n, l2), 0.0);
+      float hemi = 0.28 + 0.14 * n.y;
+      vec3 lit = uColor.rgb * (hemi + 0.62 * d1 + 0.28 * d2);
+      gl_FragColor = vec4(min(lit, vec3(1.0)), uColor.a);
+    }
+  `;
+
+  function compileShader(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    return sh;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const locPos = gl.getAttribLocation(prog, "aPos");
+  const locNorm = gl.getAttribLocation(prog, "aNorm");
+  const uMVP = gl.getUniformLocation(prog, "uMVP");
+  const uMV = gl.getUniformLocation(prog, "uMV");
+  const uColor = gl.getUniformLocation(prog, "uColor");
+  const uClipAxis = gl.getUniformLocation(prog, "uClipAxis");
+  const uClipPos = gl.getUniformLocation(prog, "uClipPos");
+  const uClipSign = gl.getUniformLocation(prog, "uClipSign");
+  const uUnlit = gl.getUniformLocation(prog, "uUnlit");
+
+  // Build GPU buffers per zone
+  const zones = DATA.zones.map((z) => {
+    const verts = new Float32Array(decodeB64(z.v));
+    const tris = new Uint32Array(decodeB64(z.t));
+    const triCount = (tris.length / 3) | 0;
+    const triPos = new Float32Array(triCount * 9);
+    const triNorm = new Float32Array(triCount * 9);
+    const edgePos = new Float32Array(triCount * 18);
+
+    for (let k = 0; k < triCount; k++) {
+      const i0 = tris[k * 3] * 3;
+      const i1 = tris[k * 3 + 1] * 3;
+      const i2 = tris[k * 3 + 2] * 3;
+      const x0 = verts[i0], y0 = verts[i0 + 1], z0 = verts[i0 + 2];
+      const x1 = verts[i1], y1 = verts[i1 + 1], z1 = verts[i1 + 2];
+      const x2 = verts[i2], y2 = verts[i2 + 1], z2 = verts[i2 + 2];
+
+      const ux = x1 - x0, uy = y1 - y0, uz = z1 - z0;
+      const vx = x2 - x0, vy = y2 - y0, vz = z2 - z0;
+      let nx = uy * vz - uz * vy;
+      let ny = uz * vx - ux * vz;
+      let nz = ux * vy - uy * vx;
+      const len = Math.hypot(nx, ny, nz) || 1.0;
+      nx /= len; ny /= len; nz /= len;
+
+      const p = k * 9;
+      triPos[p] = x0; triPos[p + 1] = y0; triPos[p + 2] = z0;
+      triPos[p + 3] = x1; triPos[p + 4] = y1; triPos[p + 5] = z1;
+      triPos[p + 6] = x2; triPos[p + 7] = y2; triPos[p + 8] = z2;
+      for (let m = 0; m < 3; m++) {
+        triNorm[p + m * 3] = nx;
+        triNorm[p + m * 3 + 1] = ny;
+        triNorm[p + m * 3 + 2] = nz;
+      }
+
+      const e = k * 18;
+      edgePos[e] = x0; edgePos[e + 1] = y0; edgePos[e + 2] = z0;
+      edgePos[e + 3] = x1; edgePos[e + 4] = y1; edgePos[e + 5] = z1;
+      edgePos[e + 6] = x1; edgePos[e + 7] = y1; edgePos[e + 8] = z1;
+      edgePos[e + 9] = x2; edgePos[e + 10] = y2; edgePos[e + 11] = z2;
+      edgePos[e + 12] = x2; edgePos[e + 13] = y2; edgePos[e + 14] = z2;
+      edgePos[e + 15] = x0; edgePos[e + 16] = y0; edgePos[e + 17] = z0;
+    }
+
+    const bufPos = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufPos);
+    gl.bufferData(gl.ARRAY_BUFFER, triPos, gl.STATIC_DRAW);
+
+    const bufNorm = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufNorm);
+    gl.bufferData(gl.ARRAY_BUFFER, triNorm, gl.STATIC_DRAW);
+
+    const bufEdge = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufEdge);
+    gl.bufferData(gl.ARRAY_BUFFER, edgePos, gl.STATIC_DRAW);
+
+    return {
+      ...z,
+      triVertCount: triCount * 3,
+      edgeVertCount: triCount * 6,
+      bufPos,
+      bufNorm,
+      bufEdge,
+      visible: true,
+    };
+  });
+
+  // Build Zone checkboxes
+  const zoneListEl = document.getElementById("zoneList");
+  const zoneCheckboxes = [];
+  for (const z of zones) {
+    const row = document.createElement("label");
+    row.className = "zone-item";
+    const colCss = `rgb(${Math.round(z.color[0]*255)},${Math.round(z.color[1]*255)},${Math.round(z.color[2]*255)})`;
+    row.innerHTML =
+      `<input type="checkbox" checked>` +
+      `<span class="swatch" style="background:${colCss}"></span>` +
+      `<span class="zone-name" title="${z.name}">${z.name}</span>` +
+      `<span class="zone-stat">${z.faces}f · ${z.tris}t · ${z.area.toFixed(3)}m²</span>`;
+    const cb = row.querySelector("input");
+    cb.addEventListener("change", () => { z.visible = cb.checked; requestRender(); });
+    zoneListEl.appendChild(row);
+    zoneCheckboxes.push({ z, cb });
+  }
+
+  // Camera state
+  let target = [0, 0, 0];
+  let dist = 5.0;
+  let yaw = 0.65;
+  let pitch = 0.32;
+  let domainOpacity = 0.16;
+  let wireframe = false;
+  let clipAxis = -1;
+  let clipSign = 1.0;
+  let clipFrac = 1.0;
+
+  function fitBox(bbox, newYaw = null, newPitch = null) {
+    const [bmin, bmax] = bbox;
+    target = [
+      0.5 * (bmin[0] + bmax[0]),
+      0.5 * (bmin[1] + bmax[1]),
+      0.5 * (bmin[2] + bmax[2]),
+    ];
+    const dx = bmax[0] - bmin[0];
+    const dy = bmax[1] - bmin[1];
+    const dz = bmax[2] - bmin[2];
+    const diag = Math.max(0.05, Math.hypot(dx, dy, dz));
+    dist = diag * 1.18;
+    if (newYaw !== null) yaw = newYaw;
+    if (newPitch !== null) pitch = newPitch;
+    requestRender();
+  }
+
+  // Matrix math utilities
+  function mul4(a, b) {
+    const out = new Float32Array(16);
+    for (let c = 0; c < 4; c++) {
+      for (let r = 0; r < 4; r++) {
+        out[c * 4 + r] =
+          a[0 * 4 + r] * b[c * 4 + 0] +
+          a[1 * 4 + r] * b[c * 4 + 1] +
+          a[2 * 4 + r] * b[c * 4 + 2] +
+          a[3 * 4 + r] * b[c * 4 + 3];
+      }
+    }
+    return out;
+  }
+  function perspective(fovRad, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovRad * 0.5);
+    const nf = 1.0 / (near - far);
+    return new Float32Array([
+      f / aspect, 0, 0, 0,
+      0, f, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0,
+    ]);
+  }
+  function lookAt(eye, center, up) {
+    let zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
+    let zlen = Math.hypot(zx, zy, zz) || 1;
+    zx /= zlen; zy /= zlen; zz /= zlen;
+    let xx = up[1] * zz - up[2] * zy;
+    let xy = up[2] * zx - up[0] * zz;
+    let xz = up[0] * zy - up[1] * zx;
+    let xlen = Math.hypot(xx, xy, xz) || 1;
+    xx /= xlen; xy /= xlen; xz /= xlen;
+    const yx = zy * xz - zz * xy;
+    const yy = zz * xx - zx * xz;
+    const yz = zx * xy - zy * xx;
+    return new Float32Array([
+      xx, yx, zx, 0,
+      xy, yy, zy, 0,
+      xz, yz, zz, 0,
+      -(xx * eye[0] + xy * eye[1] + xz * eye[2]),
+      -(yx * eye[0] + yy * eye[1] + yz * eye[2]),
+      -(zx * eye[0] + zy * eye[1] + zz * eye[2]),
+      1,
+    ]);
+  }
+
+  function getCameraBasis() {
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const dir = [cp * sy, sp, cp * cy];
+    const eye = [target[0] + dist * dir[0], target[1] + dist * dir[1], target[2] + dist * dir[2]];
+    const up = Math.abs(pitch) > 1.48 ? [0, 0, 1] : [0, 1, 0];
+    return { eye, up };
+  }
+
+  function drawTriad(mv) {
+    const tc = document.getElementById("triad");
+    const ctx = tc.getContext("2d");
+    ctx.clearRect(0, 0, 96, 96);
+    const cx = 48, cy = 48, sc = 30;
+    const axes = [
+      { vec: [1, 0, 0], col: "#ef4444", lbl: "X" },
+      { vec: [0, 1, 0], col: "#22c55e", lbl: "Y" },
+      { vec: [0, 0, 1], col: "#38bdf8", lbl: "Z" },
+    ];
+    axes.sort((a, b) => {
+      const za = mv[2] * a.vec[0] + mv[6] * a.vec[1] + mv[10] * a.vec[2];
+      const zb = mv[2] * b.vec[0] + mv[6] * b.vec[1] + mv[10] * b.vec[2];
+      return za - zb;
+    });
+    for (const ax of axes) {
+      const vx = mv[0] * ax.vec[0] + mv[4] * ax.vec[1] + mv[8] * ax.vec[2];
+      const vy = mv[1] * ax.vec[0] + mv[5] * ax.vec[1] + mv[9] * ax.vec[2];
+      const px = cx + vx * sc, py = cy - vy * sc;
+      ctx.strokeStyle = ax.col;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py); ctx.stroke();
+      ctx.fillStyle = ax.col;
+      ctx.font = "bold 11px Consolas, monospace";
+      ctx.fillText(ax.lbl, px + (vx >= 0 ? 4 : -10), py + (vy >= 0 ? -3 : 10));
+    }
+  }
+
+  let rafPending = false;
+  function requestRender() {
+    if (!rafPending) {
+      rafPending = true;
+      requestAnimationFrame(render);
+    }
+  }
+
+  function currentClipCoord() {
+    if (clipAxis < 0) return 0.0;
+    const [bmin, bmax] = DATA.domainBbox;
+    const mn = bmin[clipAxis], mx = bmax[clipAxis];
+    return mn + clipFrac * (mx - mn);
+  }
+
+  function render() {
+    rafPending = false;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(0.045, 0.068, 0.125, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+
+    const { eye, up } = getCameraBasis();
+    const mv = lookAt(eye, target, up);
+    const domSpan = Math.max(
+      1.0,
+      Math.hypot(
+        DATA.domainBbox[1][0] - DATA.domainBbox[0][0],
+        DATA.domainBbox[1][1] - DATA.domainBbox[0][1],
+        DATA.domainBbox[1][2] - DATA.domainBbox[0][2],
+      ),
+    );
+    const near = Math.max(0.002, dist * 0.004);
+    const far = Math.max(dist * 12.0, domSpan * 4.0);
+    const mvp = mul4(perspective(0.72, w / h, near, far), mv);
+
+    gl.uniformMatrix4fv(uMVP, false, mvp);
+    gl.uniformMatrix4fv(uMV, false, mv);
+    gl.uniform1i(uClipAxis, clipAxis);
+    const clipVal = currentClipCoord();
+    gl.uniform1f(uClipPos, clipVal);
+    gl.uniform1f(uClipSign, clipSign);
+
+    const opaque = zones.filter((z) => z.visible && !z.translucent);
+    const trans = zones.filter((z) => z.visible && z.translucent);
+
+    // Pass 1: Opaque walls (Rocket OML / 2D fluid)
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.uniform1f(uUnlit, 0.0);
+    for (const z of opaque) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, z.bufPos);
+      gl.enableVertexAttribArray(locPos);
+      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, z.bufNorm);
+      gl.enableVertexAttribArray(locNorm);
+      gl.vertexAttribPointer(locNorm, 3, gl.FLOAT, false, 0, 0);
+      gl.uniform4f(uColor, z.color[0], z.color[1], z.color[2], 1.0);
+      gl.drawArrays(gl.TRIANGLES, 0, z.triVertCount);
+    }
+
+    // Optional wireframe overlay
+    if (wireframe) {
+      gl.uniform1f(uUnlit, 1.0);
+      for (const z of zones) {
+        if (!z.visible) continue;
+        gl.bindBuffer(gl.ARRAY_BUFFER, z.bufEdge);
+        gl.enableVertexAttribArray(locPos);
+        gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 0, 0);
+        gl.disableVertexAttribArray(locNorm);
+        gl.uniform4f(uColor, 0.05, 0.08, 0.14, z.translucent ? 0.45 : 0.75);
+        gl.drawArrays(gl.LINES, 0, z.edgeVertCount);
+      }
+      gl.uniform1f(uUnlit, 0.0);
+    }
+
+    // Pass 2: Translucent fluid enclosure & BOIs
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    for (const z of trans) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, z.bufPos);
+      gl.enableVertexAttribArray(locPos);
+      gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, z.bufNorm);
+      gl.enableVertexAttribArray(locNorm);
+      gl.vertexAttribPointer(locNorm, 3, gl.FLOAT, false, 0, 0);
+      const a = z.isBoi ? Math.min(0.9, domainOpacity * 1.2) : domainOpacity;
+      gl.uniform4f(uColor, z.color[0], z.color[1], z.color[2], a);
+      gl.drawArrays(gl.TRIANGLES, 0, z.triVertCount);
+    }
+    gl.depthMask(true);
+    drawTriad(mv);
+  }
+
+  // Pointer orbit / pan / zoom
+  let dragging = false, panMode = false, lastX = 0, lastY = 0;
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    panMode = (e.button === 2 || e.button === 1 || e.shiftKey);
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  window.addEventListener("pointerup", () => { dragging = false; });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (panMode) {
+      const { eye, up } = getCameraBasis();
+      const mv = lookAt(eye, target, up);
+      const scale = dist * 0.0014;
+      target[0] -= (mv[0] * dx - mv[1] * dy) * scale;
+      target[1] -= (mv[4] * dx - mv[5] * dy) * scale;
+      target[2] -= (mv[8] * dx - mv[9] * dy) * scale;
+    } else {
+      yaw -= dx * 0.008;
+      pitch = Math.max(-1.52, Math.min(1.52, pitch + dy * 0.008));
+    }
+    requestRender();
+  });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    dist = Math.max(0.02, dist * Math.exp(e.deltaY * 0.0012));
+    requestRender();
+  }, { passive: false });
+  window.addEventListener("resize", requestRender);
+
+  // UI hooks
+  document.getElementById("btnTogglePanel").addEventListener("click", () => {
+    document.getElementById("sidebar").classList.toggle("collapsed");
+    requestRender();
+  });
+  document.getElementById("rngOpacity").addEventListener("input", (e) => {
+    domainOpacity = parseFloat(e.target.value);
+    document.getElementById("lblOpacity").textContent = domainOpacity.toFixed(2);
+    requestRender();
+  });
+
+  const selClip = document.getElementById("selClipAxis");
+  const rngClip = document.getElementById("rngClipPos");
+  const lblClip = document.getElementById("lblClipPos");
+  function syncClipUI() {
+    clipAxis = parseInt(selClip.value, 10);
+    clipFrac = parseInt(rngClip.value, 10) / 1000.0;
+    lblClip.textContent = clipAxis < 0 ? "Off" : `${currentClipCoord().toFixed(2)}m`;
+    requestRender();
+  }
+  selClip.addEventListener("change", syncClipUI);
+  rngClip.addEventListener("input", syncClipUI);
+  document.getElementById("btnFlipClip").addEventListener("click", () => {
+    clipSign *= -1.0;
+    requestRender();
+  });
+  // Default clip axis off at load
+  selClip.value = "-1";
+  syncClipUI();
+
+  document.getElementById("btnRocketOnly").addEventListener("click", () => {
+    for (const { z, cb } of zoneCheckboxes) {
+      z.visible = !z.translucent;
+      cb.checked = z.visible;
+    }
+    fitBox(DATA.omlBbox);
+  });
+  document.getElementById("btnShowAll").addEventListener("click", () => {
+    for (const { z, cb } of zoneCheckboxes) {
+      z.visible = true;
+      cb.checked = true;
+    }
+    requestRender();
+  });
+
+  document.getElementById("btnFocusRocket").addEventListener("click", () => fitBox(DATA.omlBbox, 0.65, 0.32));
+  document.getElementById("btnFitDomain").addEventListener("click", () => fitBox(DATA.domainBbox, 0.65, 0.32));
+  document.getElementById("btnIso").addEventListener("click", () => { yaw = 0.65; pitch = 0.32; requestRender(); });
+  document.getElementById("btnSide").addEventListener("click", () => { yaw = 0.0; pitch = 0.0; requestRender(); });
+  document.getElementById("btnTop").addEventListener("click", () => { yaw = 0.0; pitch = 1.50; requestRender(); });
+  document.getElementById("btnNose").addEventListener("click", () => { yaw = -Math.PI * 0.5; pitch = 0.08; requestRender(); });
+  document.getElementById("btnTail").addEventListener("click", () => { yaw = Math.PI * 0.5; pitch = 0.08; requestRender(); });
+  document.getElementById("btnWire").addEventListener("click", (e) => {
+    wireframe = !wireframe;
+    e.target.classList.toggle("active", wireframe);
+    requestRender();
+  });
+
+  // Start focused closely on the rocket OML (or full model if no rocket_* zones)
+  fitBox(DATA.omlBbox, 0.65, 0.32);
+})();
+</script>
+</body>
+</html>

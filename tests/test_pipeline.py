@@ -44,6 +44,12 @@ def test_full_pipeline_without_wbpj(synthetic_ork_file: Path, tmp_path: Path) ->
 
     assert res.step_path is not None and res.step_path.exists()
     assert res.manifest_path is not None and res.manifest_path.exists()
+    assert res.viewer_html_path is not None and res.viewer_html_path.exists()
+    assert res.views_png_path is not None and res.views_png_path.exists()
+    assert res.verification_json_path is not None and res.verification_json_path.exists()
+    assert res.verification_md_path is not None and res.verification_md_path.exists()
+    assert res.verification_report is not None
+    assert res.verification_report.overall_status in {"PASS", "WARN"}
     assert len(res.script_paths) == 6
     assert res.geometry_report is not None and res.geometry_report.is_watertight
     assert events and events[-1][1] == 1.0
@@ -109,7 +115,7 @@ def test_help_texts_complete() -> None:
         "mach", "altitude", "aoa", "yplus", "regime", "mesh_preset", "cores", "iterations",
         "domain_mode", "enclosure_shape", "blunt_radius", "step_schema",
         "include_bois", "fin_fillets", "rail_buttons", "launch_lugs",
-        "deliv_step", "deliv_stl", "deliv_scripts", "deliv_wbpj", "deliv_wbpz",
+        "deliv_step", "deliv_stl", "deliv_scripts", "deliv_wbpj", "deliv_wbpz", "deliv_verify",
     }
     assert expected_keys.issubset(HELP_TEXTS.keys())
     for key in expected_keys:
@@ -129,7 +135,8 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 25
+        assert len(app._info_icons) == 26
+        assert app.btn_view_cad is not None
         app.var_out_dir.set(str(tmp_path / "gui_out"))
         cfg = app._collect_config()
         assert cfg.flight.mach == 0.8
@@ -158,6 +165,7 @@ def test_pipeline_stl_only(synthetic_ork_file: Path, tmp_path: Path) -> None:
         deliverables=DeliverableConfig(
             export_step=False,
             export_stl=True,
+            export_verification=False,
             generate_scripts=False,
             build_wbpj=False,
         ),
