@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -63,6 +64,23 @@ def generate_ansys_scripts(
     sym_mult = _symmetry_multiplier(rocket, config.domain.mode)
     wbpj_name = wbpj_target.name if config.deliverables.build_wbpj else None
 
+    fin_face_size_m = round(max(0.001, min(0.005, bl.surface_min_size_m * 1.5)), 6)
+    nose_face_size_m = round(max(0.002, min(0.008, bl.surface_min_size_m * 2.2)), 6)
+    aoa_rad = math.radians(config.flight.aoa_deg)
+    flow_dir_x = math.cos(aoa_rad)
+    flow_dir_y = math.sin(aoa_rad)
+
+    zone_names: list[str] = []
+    if manifest_path.exists():
+        try:
+            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(manifest_data, dict):
+                counts = manifest_data.get("named_selections_counts", {})
+                if isinstance(counts, dict):
+                    zone_names = sorted(str(k) for k in counts)
+        except (OSError, json.JSONDecodeError):
+            pass
+
     context = {
         "rocket": rocket,
         "stem": stem,
@@ -87,6 +105,11 @@ def generate_ansys_scripts(
         "meshing_jou_filename": "fluent_meshing.jou",
         "solver_jou_filename": "fluent_solver.jou",
         "symmetry_multiplier": sym_mult,
+        "fin_face_size_m": fin_face_size_m,
+        "nose_face_size_m": nose_face_size_m,
+        "flow_dir_x": flow_dir_x,
+        "flow_dir_y": flow_dir_y,
+        "zone_names": zone_names,
         "next_steps_md": build_ansys_next_steps_markdown(
             rocket=rocket,
             stem=stem,

@@ -5,7 +5,11 @@
 
 SetScriptVersion(Version="{{ wb_script_version }}")
 
-template1 = GetTemplate(TemplateName="Fluid Flow")
+try:
+    template1 = GetTemplate(TemplateName="Fluid Flow with Fluent Meshing")
+except Exception:
+    template1 = GetTemplate(TemplateName="Fluid Flow")
+
 system1 = template1.CreateSystem()
 system1.DisplayText = "{{ display_name }}"
 

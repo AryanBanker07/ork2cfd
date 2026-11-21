@@ -145,8 +145,8 @@ def build_ansys_next_steps_markdown(
     if wbpj_filename:
         wb_open = (
             f"1. **ANSYS Workbench Project:** Double-click **`{wbpj_filename}`** in this "
-            f"folder. Right-click **Solution → Edit** (or **Update**) to launch Fluent with the "
-            f"imported STEP geometry already wired."
+            f"folder (**Fluid Flow (Fluent with Fluent Meshing)**), then open/update **Mesh** "
+            f"to run Fluent Meshing and **Solution** to launch the Fluent Solver."
         )
     else:
         wb_open = (

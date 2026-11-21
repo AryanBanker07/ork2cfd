@@ -288,11 +288,13 @@ HELP_TEXTS: dict[str, HelpEntry] = {
         title="Deliverable: Runnable ANSYS Scripts & Journals",
         body=(
             "Generates 6 pre-configured files tailored to your rocket and flight point:\n"
-            "• run_fluent.py — End-to-end PyFluent Watertight Meshing + Solver + CSV.\n"
-            "• fluent_meshing.jou & fluent_solver.jou — Fluent TUI journals for GUI/HPC.\n"
+            "• run_fluent.py — End-to-end PyFluent Watertight Meshing (with fin/nose local "
+            "face sizing, BOIs, y+ prisms, poly-hexcore) + Mach-sweep Solver + CSV.\n"
+            "• fluent_meshing.jou & fluent_solver.jou — Fluent Meshing & Solver TUI journals.\n"
             "• discovery_prep.py — ANSYS Discovery/SpaceClaim Named Selection fallback.\n"
-            "• create_project.wbjn — Workbench journal to wire the .step into Fluid Flow.\n"
-            "• README_RUN.md — Physics summary and copy-paste run commands."
+            "• create_project.wbjn — Workbench journal wiring .step into Fluid Flow "
+            "(Fluent with Fluent Meshing).\n"
+            "• README_RUN.md — Workflow status breakdown and copy-paste run commands."
         ),
     ),
     "deliv_wbpj": HelpEntry(
@@ -301,7 +303,7 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "Automatically runs your locally installed ANSYS Workbench (RunWB2.exe -B -R "
             "create_project.wbjn) in the background (~15–40 s) to produce a ready-to-open "
             "<rocket>_cfd.wbpj project + _files/ folder with the .step geometry already "
-            "linked into a Fluid Flow (Fluent) system.\n\n"
+            "linked into a Fluid Flow (Fluent with Fluent Meshing) system.\n\n"
             "Simply double-click the .wbpj file to open it directly in ANSYS Workbench."
         ),
     ),

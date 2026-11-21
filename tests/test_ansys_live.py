@@ -53,4 +53,7 @@ def test_live_workbench_wbpj_and_wbpz_build(synthetic_ork_file: Path, tmp_path: 
     assert res.wbpz_path is not None and res.wbpz_path.exists()
     assert res.wbpz_path.stat().st_size > 10_000
     wb_txt = res.wbpj_path.read_text(encoding="utf-8", errors="ignore")
-    assert "Fluid Flow" in wb_txt
+    assert (
+        "Fluid Flow with Fluent Meshing" in wb_txt
+        or "Fluid Flow (Fluent with Fluent Meshing)" in wb_txt
+    )

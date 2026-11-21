@@ -6,13 +6,21 @@
 |---|---|
 | `{{ step_filename }}` | Watertight CFD-ready STEP ({{ cad.step_schema }}, units: meters) with embedded Named Selections and BOIs |
 | `{{ manifest_filename }}` | Geometry & boundary-zone metadata + validation report |
-| `run_fluent.py` | End-to-end PyFluent script (Watertight Meshing → Solver → CSV) |
-| `fluent_meshing.jou` | Fluent Meshing TUI journal (Watertight Geometry Workflow) |
-| `fluent_solver.jou` | Fluent Solver TUI journal |
+| `run_fluent.py` | End-to-end PyFluent script (Watertight Meshing w/ fin/nose local sizing & $y^+$ prisms → Solver → Mach sweep → CSV) |
+| `fluent_meshing.jou` | Fluent Meshing journal (Watertight Geometry Workflow w/ local sizing & `poly-hexcore`) |
+| `fluent_solver.jou` | Fluent Solver journal (physics, farfield/inlet/outlet BCs, wall-forces & `.cas.h5` export) |
 | `discovery_prep.py` | ANSYS Discovery / SpaceClaim geometry prep & Named Selection fallback script |
-| `create_project.wbjn` | ANSYS Workbench journal linking `{{ step_filename }}` into Fluid Flow (Fluent) |
-{% if wbpj_filename %}| `{{ wbpj_filename }}` | Ready-to-open ANSYS Workbench project (double-click to launch) |
+| `create_project.wbjn` | ANSYS Workbench journal linking `{{ step_filename }}` into **Fluid Flow (Fluent with Fluent Meshing)** |
+{% if wbpj_filename %}| `{{ wbpj_filename }}` | Ready-to-open ANSYS Workbench project (**Fluid Flow (Fluent with Fluent Meshing)** — double-click to launch) |
 {% endif %}
+
+### Workflow Completion Breakdown (What Runs When)
+
+| Deliverable / Command | What It Completes Automatically |
+|---|---|
+| **`{{ wbpj_filename or (stem + "_cfd.wbpj") }}`** *(already built)* | Creates the **Fluid Flow (Fluent with Fluent Meshing)** system in Workbench, imports `{{ step_filename }}` into **Geometry** (in SI meters with Named Selections), and saves the project. Does **not** mesh or solve yet. |
+| **`python run_fluent.py`** *(run in terminal, `--mach 0.5 0.8 1.2`)* | Imports STEP → applies `rocket_fins` (`{{ "%.1f" | format(fin_face_size_m * 1000) }} mm`), `rocket_nosecone` (`{{ "%.1f" | format(nose_face_size_m * 1000) }} mm`) & BOI local sizing → surface mesh → Watertight region setup → $y^+$ uniform prisms (`FirstHeight = {{ "%.3e" | format(bl.first_layer_thickness_m) }} m`, `{{ bl.prism_layers }}` layers) → `poly-hexcore` volume mesh → solves Mach sweep & writes per-zone + total drag CSV (`aero_results.csv`, `rocketpy_drag.csv`). |
+| **`fluent_meshing.jou` + `fluent_solver.jou`** *(Fluent CLI/GUI)* | Same Watertight sizing, $y^+$ boundary layers, `poly-hexcore` volume mesh (`{{ stem }}.msh.h5`), solver models, boundary conditions, per-zone wall-forces report, and solved `{{ stem }}.cas.h5`. |
 
 ---
 

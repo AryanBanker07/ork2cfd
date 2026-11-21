@@ -6,11 +6,45 @@
 (%wf-init-workflow "Watertight Geometry")
 (%wf-set-var "Import Geometry" "FileName" "{{ step_filename }}")
 (%wf-set-var "Import Geometry" "LengthUnit" "m")
+(%wf-set-var "Import Geometry" "ImportCadPreferences.ReadNamedSelections" #t)
 (%wf-execute-task "Import Geometry")
+
+; Local face sizing (fins = {{ "%.6f" | format(fin_face_size_m) }} m, nose = {{ "%.6f" | format(nose_face_size_m) }} m) & BOIs
+(%wf-set-var "Add Local Sizing" "AddChild" "yes")
+(%wf-set-var "Add Local Sizing" "BOIControlName" "fin_face_sizing")
+(%wf-set-var "Add Local Sizing" "BOIExecution" "Face Size")
+(%wf-set-var "Add Local Sizing" "BOISize" {{ "%.6f" | format(fin_face_size_m) }})
+(%wf-set-var "Add Local Sizing" "BOIFaceLabelList" '("rocket_fins"))
+(%wf-add-child-and-update "Add Local Sizing")
+
+(%wf-set-var "Add Local Sizing" "AddChild" "yes")
+(%wf-set-var "Add Local Sizing" "BOIControlName" "nose_face_sizing")
+(%wf-set-var "Add Local Sizing" "BOIExecution" "Face Size")
+(%wf-set-var "Add Local Sizing" "BOISize" {{ "%.6f" | format(nose_face_size_m) }})
+(%wf-set-var "Add Local Sizing" "BOIFaceLabelList" '("rocket_nosecone"))
+(%wf-add-child-and-update "Add Local Sizing")
+
+{% if domain.boi.enabled %}
+(%wf-set-var "Add Local Sizing" "AddChild" "yes")
+(%wf-set-var "Add Local Sizing" "BOIControlName" "boi_nearfield_sizing")
+(%wf-set-var "Add Local Sizing" "BOIExecution" "Body Of Influence")
+(%wf-set-var "Add Local Sizing" "BOISize" {{ "%.6f" | format(bl.boi_nearfield_size_m) }})
+(%wf-set-var "Add Local Sizing" "BOIFaceLabelList" '("boi_nearfield"))
+(%wf-add-child-and-update "Add Local Sizing")
+
+(%wf-set-var "Add Local Sizing" "AddChild" "yes")
+(%wf-set-var "Add Local Sizing" "BOIControlName" "boi_wake_sizing")
+(%wf-set-var "Add Local Sizing" "BOIExecution" "Body Of Influence")
+(%wf-set-var "Add Local Sizing" "BOISize" {{ "%.6f" | format(bl.boi_wake_size_m) }})
+(%wf-set-var "Add Local Sizing" "BOIFaceLabelList" '("boi_wake"))
+(%wf-add-child-and-update "Add Local Sizing")
+{% endif %}
+(%wf-execute-task "Add Local Sizing")
 
 (%wf-set-var "Generate the Surface Mesh" "CFDSurfaceMeshControls.MinSize" {{ "%.6f" | format(bl.surface_min_size_m) }})
 (%wf-set-var "Generate the Surface Mesh" "CFDSurfaceMeshControls.MaxSize" {{ "%.6f" | format(bl.surface_max_size_m) }})
 (%wf-set-var "Generate the Surface Mesh" "CFDSurfaceMeshControls.GrowthRate" 1.2)
+(%wf-set-var "Generate the Surface Mesh" "CFDSurfaceMeshControls.CurvatureNormalAngle" 12.0)
 (%wf-execute-task "Generate the Surface Mesh")
 
 (%wf-set-var "Describe Geometry" "SetupType" "The geometry consists of only fluid regions")
@@ -22,8 +56,11 @@
 (%wf-execute-task "Update Regions")
 
 ; Boundary Layer (y+ = {{ bl.target_yplus }}, delta_y1 = {{ "%.3e" | format(bl.first_layer_thickness_m) }} m)
+(%wf-set-var "Add Boundary Layers" "OffsetMethodType" "uniform")
+(%wf-set-var "Add Boundary Layers" "FirstHeight" {{ "%.8e" | format(bl.first_layer_thickness_m) }})
 (%wf-set-var "Add Boundary Layers" "NumberOfLayers" {{ bl.prism_layers }})
 (%wf-set-var "Add Boundary Layers" "Rate" {{ bl.prism_growth_rate }})
+(%wf-add-child-and-update "Add Boundary Layers")
 (%wf-execute-task "Add Boundary Layers")
 
 (%wf-set-var "Generate the Volume Mesh" "VolumeFill" "poly-hexcore")

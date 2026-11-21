@@ -87,6 +87,11 @@ def test_generated_scripts_syntax_and_physics(
     run_src = scripts["run_fluent.py"].read_text(encoding="utf-8")
     assert f'SOLVER_TYPE = "{expected_solver}"' in run_src
     assert "SYM_FACTOR = 4.0" in run_src
+    assert "FIN_FACE_SIZE_M =" in run_src
+    assert "NOSE_FACE_SIZE_M =" in run_src
+    assert "MACH_LIST =" in run_src
+    assert "poly-hexcore" in run_src
+    assert "FirstHeight" in run_src
 
     cfg_half_sec = PipelineConfig(
         domain=DomainConfig(mode=DomainMode.SYMMETRY_HALF_SECTOR),
@@ -108,10 +113,18 @@ def test_generated_scripts_syntax_and_physics(
 
     wbjn_src = scripts["create_project.wbjn"].read_text(encoding="utf-8")
     assert 'SetScriptVersion(Version="25.2.170")' in wbjn_src
+    assert 'GetTemplate(TemplateName="Fluid Flow with Fluent Meshing")' in wbjn_src
     assert 'Archive(FilePath=' in wbjn_src
+
+    mesh_jou = scripts["fluent_meshing.jou"].read_text(encoding="utf-8")
+    assert "FirstHeight" in mesh_jou
+    assert '"uniform"' in mesh_jou
+    assert "poly-hexcore" in mesh_jou
 
     solver_jou = scripts["fluent_solver.jou"].read_text(encoding="utf-8")
     assert expected_solver in solver_jou
+    assert "/define/boundary-conditions/" in solver_jou
+    assert "/report/forces/wall-forces" in solver_jou
 
     readme_run = scripts["README_RUN.md"].read_text(encoding="utf-8")
     assert "## 4. Next Steps" in readme_run
@@ -194,3 +207,56 @@ def test_ansys_detector_and_workbench_builder(
     out_pj, out_pz = build_workbench_project(wbjn, wbpj, chosen, expected_wbpz_path=wbpz)
     assert out_pj == wbpj
     assert out_pz == wbpz
+
+
+def test_fluent_launcher_handles_missing_pyfluent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ork2cfd.ansys.detector import AnsysInstallation
+    from ork2cfd.ansys.fluent_launcher import launch_fluent_run
+
+    out_dir = tmp_path / "pkg"
+    out_dir.mkdir()
+    meshing_jou = out_dir / "fluent_meshing.jou"
+    meshing_jou.write_text("; mesh journal", encoding="utf-8")
+
+    def _raise_missing(_name: str):
+        raise ModuleNotFoundError("No module named 'ansys'")
+
+    captured: dict[str, object] = {}
+
+    class _FakeProc:
+        pid = 1234
+
+    def _fake_popen(cmd, cwd=None, **_kwargs):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        return _FakeProc()
+
+    fluent_exe = tmp_path / "fluent.exe"
+    fluent_exe.write_text("stub", encoding="utf-8")
+    install = AnsysInstallation(
+        version_code="25.2",
+        release_tag="v252",
+        wb_script_version="25.2.170",
+        root_dir=tmp_path,
+        runwb2_exe=None,
+        fluent_exe=fluent_exe,
+        discovery_exe=None,
+    )
+
+    monkeypatch.setattr("ork2cfd.ansys.fluent_launcher.importlib.util.find_spec", _raise_missing)
+    monkeypatch.setattr("ork2cfd.ansys.fluent_launcher.subprocess.Popen", _fake_popen)
+
+    proc = launch_fluent_run(out_dir, ansys_install=install, cores=4, show_gui=False)
+    assert proc.pid == 1234
+    assert captured["cmd"] == [
+        str(fluent_exe),
+        "3ddp",
+        "-meshing",
+        "-t4",
+        "-g",
+        "-i",
+        str(meshing_jou),
+    ]

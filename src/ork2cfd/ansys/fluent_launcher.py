@@ -26,7 +26,10 @@ def launch_fluent_run(
     run_py = output_dir / "run_fluent.py"
     meshing_jou = output_dir / "fluent_meshing.jou"
 
-    has_pyfluent = importlib.util.find_spec("ansys.fluent.core") is not None
+    try:
+        has_pyfluent = importlib.util.find_spec("ansys.fluent.core") is not None
+    except ModuleNotFoundError:
+        has_pyfluent = False
     if has_pyfluent and run_py.exists():
         code = (
             f"import run_fluent; run_fluent.run_cfd(show_gui={show_gui!r})"

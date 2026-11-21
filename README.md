@@ -21,10 +21,10 @@ Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready
   - Generates `<stem>_cad_viewer.html` (offline WebGL 3D viewer with orbit/pan/zoom, X/Y/Z section clip plane, wireframe overlay, domain X-ray opacity slider, and Named Selection toggles), `<stem>_cad_views.png` (4-view CAD vs. `.ork` overlay diagnostic sheet), and `<stem>_verification.{json,md}` (`PASS`/`WARN`/`FAIL` B-Rep, dimensional fidelity, and STEP round-trip audit).
   - Open directly via the **View 3D CAD** button in the GUI or `ork2cfd verify <rocket.ork | model.step> --open`.
 - **Runnable ANSYS Scripts & Automated `.wbpj` Project**:
-  - `run_fluent.py` (PyFluent Watertight Meshing → Poly-Hexcore + Prism → Solver → CSV)
-  - `fluent_meshing.jou` & `fluent_solver.jou` (Fluent TUI journals for GUI or HPC)
+  - `run_fluent.py` (PyFluent Watertight Meshing with local `rocket_fins` / `rocket_nosecone` & BOI sizing, $y^+$ prisms, `poly-hexcore` → Solver / `--mach` sweep → per-group + total `aero_results.csv` & `rocketpy_drag.csv`)
+  - `fluent_meshing.jou` & `fluent_solver.jou` (Fluent Meshing & Solver TUI journals for GUI or HPC)
   - `discovery_prep.py` (ANSYS Discovery / SpaceClaim geometry & fallback Named Selection script)
-  - `create_project.wbjn` + automatic batch `.wbpj` (and optional `.wbpz`) creation via local `RunWB2.exe`.
+  - `create_project.wbjn` + automatic batch `.wbpj` (and optional `.wbpz`) creation via local `RunWB2.exe` using the **Fluid Flow (Fluent with Fluent Meshing)** template.
 
 ## Installation
 
