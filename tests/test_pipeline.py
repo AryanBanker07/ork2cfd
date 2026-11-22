@@ -124,6 +124,7 @@ def test_help_texts_complete() -> None:
         "domain_mode", "enclosure_shape", "blunt_radius", "step_schema",
         "include_bois", "fin_fillets", "rail_buttons", "launch_lugs",
         "deliv_step",
+        "export_preset",
         "deliv_rocket_step",
         "deliv_stl",
         "deliv_scripts",
@@ -149,10 +150,23 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 29
+        assert len(app._info_icons) == 30
         assert app.btn_view_cad is not None
         assert app.btn_ansys_guide is not None
         assert "Wall Yplus" in app.lbl_next_steps.cget("text")
+
+        # 1-click Rocket .step Only toggle vs Full CFD Package
+        app._on_export_preset_change("Rocket .step Only")
+        assert app.var_rocket_step.get() is True
+        assert app.var_step.get() is False
+        assert app.var_scripts.get() is False
+        assert app.var_wbpj.get() is False
+        assert app.btn_generate.cget("text") == "Export Rocket .step"
+
+        app._on_export_preset_change("Full CFD Package")
+        assert app.var_step.get() is True
+        assert app.var_rocket_step.get() is True
+        assert app.btn_generate.cget("text") == "Generate CFD Package"
         app.var_out_dir.set(str(tmp_path / "gui_out"))
         cfg = app._collect_config()
         assert cfg.flight.mach == 0.8
@@ -284,3 +298,30 @@ def test_cli_verify_multistage_stage_selection(tmp_path: Path) -> None:
     assert (out_dir / "Banana3_stage_1_cfd.step").exists()
     assert (out_dir / "Banana3_stage_1_cad_viewer.html").exists()
     assert (out_dir / "Banana3_stage_1_verification.json").exists()
+
+
+def test_cli_convert_rocket_only_flag(synthetic_ork_file: Path, tmp_path: Path) -> None:
+    runner = CliRunner()
+    out_dir = tmp_path / "rocket_only_cli"
+    res = runner.invoke(
+        cli_main,
+        [
+            "convert",
+            str(synthetic_ork_file),
+            "-o",
+            str(out_dir),
+            "--rocket-only",
+            "--stl",
+        ],
+    )
+    assert res.exit_code == 0
+    assert (out_dir / "TestRocket_rocket.step").exists()
+    assert (out_dir / "TestRocket_rocket_manifest.json").exists()
+    assert (out_dir / "TestRocket_rocket.stl").exists()
+    assert (out_dir / "TestRocket_cad_viewer.html").exists()
+    assert not (out_dir / "TestRocket_cfd.step").exists()
+    assert not (out_dir / "run_fluent.py").exists()
+    assert not (out_dir / "TestRocket_cfd.wbpj").exists()
+    stl_text = (out_dir / "TestRocket_rocket.stl").read_text(encoding="utf-8")
+    assert "solid farfield\n" not in stl_text
+    assert "rocket-only, no enclosure" in res.output

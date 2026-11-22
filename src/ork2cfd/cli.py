@@ -148,6 +148,12 @@ def inspect(ork_file: Path) -> None:
     default=True,
     help="Also export standalone rocket-only .step with per-component Named Selections.",
 )
+@click.option(
+    "--rocket-only",
+    is_flag=True,
+    default=False,
+    help="Export only the standalone rocket .step (no fluid enclosure, scripts, or Workbench).",
+)
 @click.option("--stl/--no-stl", default=False, help="Export multi-region ASCII STL mesh (m).")
 @click.option(
     "--verify/--no-verify",
@@ -177,6 +183,7 @@ def convert(
     launch_lugs: bool,
     step: bool,
     rocket_step: bool,
+    rocket_only: bool,
     stl: bool,
     verify: bool,
     wbpj: bool,
@@ -186,7 +193,11 @@ def convert(
 ) -> None:
     """Convert an .ork file into STEP geometry, ANSYS scripts, and Workbench project."""
     rocket = parse_ork_file(ork_file).select_stages(stage)
-    target_dir = out_dir or (ork_file.parent / f"{sanitize_stem(rocket.name)}_cfd")
+    suffix = "rocket" if rocket_only else "cfd"
+    target_dir = out_dir or (ork_file.parent / f"{sanitize_stem(rocket.name)}_{suffix}")
+
+    use_cfd_step = False if rocket_only else step
+    use_rocket_step = True if rocket_only else rocket_step
 
     cfg = PipelineConfig(
         cad=CadConfig(
@@ -211,13 +222,13 @@ def convert(
             iterations=iterations,
         ),
         deliverables=DeliverableConfig(
-            export_step=step,
-            export_rocket_step=rocket_step,
+            export_step=use_cfd_step,
+            export_rocket_step=use_rocket_step,
             export_stl=stl,
             export_verification=verify,
-            generate_scripts=step,
-            build_wbpj=wbpj and step,
-            archive_wbpz=wbpz and step,
+            generate_scripts=use_cfd_step,
+            build_wbpj=(wbpj and use_cfd_step),
+            archive_wbpz=(wbpz and use_cfd_step),
         ),
         stage_selection=stage,
     )
@@ -228,11 +239,12 @@ def convert(
         config=cfg,
         progress_callback=lambda msg, frac: console.print(f"[cyan][{int(frac*100):3d}%][/] {msg}"),
     )
-    console.print(f"\n[bold green]Done![/] CFD package saved to: {res.output_dir}")
+    pkg_label = "Rocket-only CAD export" if rocket_only else "CFD package"
+    console.print(f"\n[bold green]Done![/] {pkg_label} saved to: {res.output_dir}")
     if res.step_path:
         console.print(f"  STEP:      {res.step_path.name}")
     if res.rocket_step_path:
-        console.print(f"  Rocket:    {res.rocket_step_path.name}")
+        console.print(f"  Rocket:    {res.rocket_step_path.name} (rocket-only, no enclosure)")
     if res.stl_path:
         console.print(f"  STL:       {res.stl_path.name}")
     if res.viewer_html_path:
@@ -249,6 +261,12 @@ def convert(
         console.print(f"  Archive:   {res.wbpz_path.name}")
     for w in res.warnings:
         console.print(f"  [yellow]WARN:[/] {w}")
+
+    if not res.script_paths and res.step_path is None:
+        if res.geometry_report and res.geometry_report.named_selections:
+            zones_str = ", ".join(sorted(res.geometry_report.named_selections))
+            console.print(f"  Parts:     {zones_str}")
+        return
 
     sym_mult = _symmetry_multiplier(rocket, DomainMode(mode))
     summary = build_ansys_next_steps_summary(

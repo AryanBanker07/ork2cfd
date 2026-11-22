@@ -76,10 +76,9 @@ def run_pipeline(
         or cfg.deliverables.generate_scripts
         or cfg.deliverables.build_wbpj
     )
-    need_cfd_domain = (
-        need_cfd_step
-        or cfg.deliverables.export_stl
-        or (cfg.deliverables.export_verification and not cfg.deliverables.export_rocket_step)
+    need_cfd_domain = need_cfd_step or (
+        (cfg.deliverables.export_stl or cfg.deliverables.export_verification)
+        and not cfg.deliverables.export_rocket_step
     )
     if need_cfd_domain:
         _emit("Building watertight 3D OML, fluid domain, and BOIs...", 0.35)
@@ -167,6 +166,13 @@ def run_pipeline(
             cad_config=cfg.cad,
             domain_config=rocket_dom_cfg,
         )
+        if cfg.deliverables.export_stl and stl_path is None:
+            _emit("Exporting rocket-only multi-region STL mesh...", 0.70)
+            stl_path, _r_tris = export_stl_with_regions(
+                domain_out=rocket_dom,
+                stl_path=out_dir / f"{stem}_rocket.stl",
+                cad_config=cfg.cad,
+            )
         if cfg.deliverables.export_verification and verification_report is None:
             _emit("Verifying rocket-only CAD & generating 3D viewer and diagnostic views...", 0.72)
             r_meshes = tessellate_domain_zones(rocket_dom, relative=True, include_bois=False)
@@ -177,6 +183,7 @@ def run_pipeline(
                 cad_config=cfg.cad,
                 domain_config=rocket_dom_cfg,
                 step_path=rocket_step_path,
+                stl_path=stl_path,
             )
             viewer_html_path = export_cad_viewer_html(
                 zone_meshes=r_meshes,
@@ -255,7 +262,12 @@ def run_pipeline(
                 expected_wbpz_path=wbpz_target,
             )
 
-    _emit("CFD package generation complete.", 1.0)
+    done_msg = (
+        "Rocket-only CAD export complete."
+        if not need_cfd_domain and rocket_step_path is not None
+        else "CFD package generation complete."
+    )
+    _emit(done_msg, 1.0)
     return PackageResult(
         rocket=rocket,
         bl_report=bl,

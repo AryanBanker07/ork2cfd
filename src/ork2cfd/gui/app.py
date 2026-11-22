@@ -90,6 +90,7 @@ class Ork2CfdApp(ctk.CTk):
         self.var_rail_btns = ctk.BooleanVar(value=False)
         self.var_lugs = ctk.BooleanVar(value=False)
 
+        self.var_export_preset = ctk.StringVar(value="Full CFD Package")
         self.var_step = ctk.BooleanVar(value=True)
         self.var_rocket_step = ctk.BooleanVar(value=True)
         self.var_stl = ctk.BooleanVar(value=False)
@@ -349,7 +350,7 @@ class Ork2CfdApp(ctk.CTk):
     def _build_deliverables_card(self, parent, row: int) -> None:
         card = SectionCard(
             parent,
-            "4. Deliverables & Output Folder",
+            "4. Export Options & Output Folder",
             help_key="sec_deliverables",
             icon_registry=self._info_icons,
         )
@@ -375,33 +376,89 @@ class Ork2CfdApp(ctk.CTk):
             card.body, text=ansys_text, font=ctk.CTkFont(size=11), text_color=ansys_col, anchor="w"
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
 
+        mode_row = ctk.CTkFrame(card.body, fg_color="transparent")
+        mode_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(2, 6))
+        mode_row.grid_columnconfigure(1, weight=1)
+        mode_hdr = ctk.CTkFrame(mode_row, fg_color="transparent")
+        mode_hdr.grid(row=0, column=0, sticky="w", padx=(4, 8))
+        ctk.CTkLabel(
+            mode_hdr, text="Export Mode", font=ctk.CTkFont(size=11, weight="bold"), anchor="w"
+        ).pack(side="left")
+        preset_icon = InfoIcon(mode_hdr, help_key="export_preset")
+        preset_icon.pack(side="left", padx=(5, 0))
+        self._info_icons.append(preset_icon)
+
+        self.seg_export_preset = ctk.CTkSegmentedButton(
+            mode_row,
+            values=["Full CFD Package", "Rocket .step Only"],
+            variable=self.var_export_preset,
+            command=self._on_export_preset_change,
+        )
+        self.seg_export_preset.grid(row=0, column=1, sticky="ew", padx=4)
+
         add_labeled_checkbox(
-            card.body, 2, 0, "CFD Domain .step + JSON", self.var_step,
-            help_key="deliv_step", icon_registry=self._info_icons,
+            card.body, 3, 0, "Rocket-Only .step (No Enclosure)", self.var_rocket_step,
+            help_key="deliv_rocket_step", command=self._sync_generate_button_label,
+            icon_registry=self._info_icons,
         )
         add_labeled_checkbox(
-            card.body, 2, 1, "ANSYS Scripts (.py/.jou)", self.var_scripts,
-            help_key="deliv_scripts", icon_registry=self._info_icons,
+            card.body, 3, 1, "CFD Enclosure .step + JSON", self.var_step,
+            help_key="deliv_step", command=self._sync_generate_button_label,
+            icon_registry=self._info_icons,
         )
         add_labeled_checkbox(
-            card.body, 3, 0, "Build Workbench .wbpj", self.var_wbpj,
-            help_key="deliv_wbpj", icon_registry=self._info_icons,
+            card.body, 4, 0, "ANSYS Scripts (.py/.jou)", self.var_scripts,
+            help_key="deliv_scripts", command=self._sync_generate_button_label,
+            icon_registry=self._info_icons,
         )
         add_labeled_checkbox(
-            card.body, 3, 1, "Archive .wbpz", self.var_wbpz,
-            help_key="deliv_wbpz", icon_registry=self._info_icons,
+            card.body, 4, 1, "Build Workbench .wbpj", self.var_wbpj,
+            help_key="deliv_wbpj", command=self._sync_generate_button_label,
+            icon_registry=self._info_icons,
         )
         add_labeled_checkbox(
-            card.body, 4, 0, "Export Multi-Region .stl", self.var_stl,
+            card.body, 5, 0, "Archive .wbpz", self.var_wbpz,
+            help_key="deliv_wbpz", command=self._sync_generate_button_label,
+            icon_registry=self._info_icons,
+        )
+        add_labeled_checkbox(
+            card.body, 5, 1, "Export Multi-Region .stl", self.var_stl,
             help_key="deliv_stl", icon_registry=self._info_icons,
         )
         add_labeled_checkbox(
-            card.body, 4, 1, "CAD Viewer & Verify (.html/.png)", self.var_verify,
+            card.body, 6, 0, "CAD Viewer & Verify (.html/.png)", self.var_verify,
             help_key="deliv_verify", icon_registry=self._info_icons,
         )
-        add_labeled_checkbox(
-            card.body, 5, 0, "Rocket-Only .step (Named Parts)", self.var_rocket_step,
-            help_key="deliv_rocket_step", icon_registry=self._info_icons,
+
+    def _on_export_preset_change(self, value: str) -> None:
+        self.var_export_preset.set(value)
+        if value == "Rocket .step Only":
+            self.var_rocket_step.set(True)
+            self.var_verify.set(True)
+            self.var_step.set(False)
+            self.var_scripts.set(False)
+            self.var_wbpj.set(False)
+            self.var_wbpz.set(False)
+            self.var_stl.set(False)
+        else:
+            self.var_step.set(True)
+            self.var_rocket_step.set(True)
+            self.var_scripts.set(True)
+            self.var_wbpj.set(self._ansys_install is not None)
+            self.var_verify.set(True)
+        self._sync_generate_button_label()
+
+    def _sync_generate_button_label(self) -> None:
+        if self._is_running:
+            return
+        rocket_only = self.var_rocket_step.get() and not (
+            self.var_step.get()
+            or self.var_scripts.get()
+            or self.var_wbpj.get()
+            or self.var_wbpz.get()
+        )
+        self.btn_generate.configure(
+            text="Export Rocket .step" if rocket_only else "Generate CFD Package"
         )
 
     def _build_next_steps_card(self, parent, row: int) -> None:
@@ -705,14 +762,17 @@ class Ork2CfdApp(ctk.CTk):
     def _on_complete(self, res: PackageResult) -> None:
         self._is_running = False
         self._last_result = res
-        self.btn_generate.configure(state="normal", text="Generate CFD Package")
+        self.btn_generate.configure(state="normal")
+        self._sync_generate_button_label()
         if res.viewer_html_path and res.viewer_html_path.exists():
             self.btn_view_cad.configure(state="normal")
         else:
             self.btn_view_cad.configure(state="disabled")
         self.btn_open_dir.configure(state="normal")
-        if self._ansys_install and self._ansys_install.fluent_exe:
+        if self._ansys_install and self._ansys_install.fluent_exe and res.script_paths:
             self.btn_run_fluent.configure(state="normal")
+        else:
+            self.btn_run_fluent.configure(state="disabled")
         self.progress.set(1.0)
 
         if res.geometry_report:
@@ -746,14 +806,20 @@ class Ork2CfdApp(ctk.CTk):
         for w in res.warnings:
             self._append_log(f"[WARN] {w}")
         self._refresh_next_steps()
-        self._append_log(
-            "[NEXT] See README_RUN.md (Section 4) or click 'Open Full ANSYS Results Guide' "
-            "for Fluent / CFD-Post result steps."
-        )
+        if res.rocket_step_path and not res.script_paths:
+            self._append_log(
+                f"[OK] Rocket-only .step ready (no enclosure): {res.rocket_step_path}"
+            )
+        else:
+            self._append_log(
+                "[NEXT] See README_RUN.md (Section 4) or click 'Open Full ANSYS Results Guide' "
+                "for Fluent / CFD-Post result steps."
+            )
 
     def _on_error(self, exc: Exception) -> None:
         self._is_running = False
-        self.btn_generate.configure(state="normal", text="Generate CFD Package")
+        self.btn_generate.configure(state="normal")
+        self._sync_generate_button_label()
         self.progress.set(0.0)
         self._append_log(f"[ERROR] {exc}")
 

@@ -62,16 +62,25 @@ HELP_TEXTS: dict[str, HelpEntry] = {
         ),
     ),
     "sec_deliverables": HelpEntry(
-        title="Exported Deliverables & ANSYS Integration",
+        title="Export Options & ANSYS Integration",
         body=(
-            "Controls which CAD artifacts are generated in the output folder:\n"
-            "• CFD Fluid Domain <rocket>_cfd.step + _manifest.json for Fluent Meshing.\n"
-            "• Standalone Rocket-Only <rocket>_rocket.step with individual Named Selections "
-            "and surface colors for every nosecone, transition, body tube, fin set, and base.\n"
-            "• Runnable ANSYS scripts (run_fluent.py, .jou journals, discovery_prep.py, "
-            "create_project.wbjn, README_RUN.md).\n"
-            "• Ready-to-open ANSYS Workbench project (.wbpj + _files/ and optional .wbpz) "
-            "generated automatically via local RunWB2.exe."
+            "Controls which CAD and ANSYS artifacts are generated in the output folder:\n"
+            "• Switch Export Mode to 'Rocket .step Only' to export ONLY the watertight rocket "
+            "CAD file (<rocket>_rocket.step) with no fluid enclosure or Workbench wait.\n"
+            "• Keep 'Full CFD Package' to also export the fluid enclosure (<rocket>_cfd.step), "
+            "runnable ANSYS scripts (run_fluent.py, .jou journals, discovery_prep.py, "
+            "create_project.wbjn), and an auto-built Workbench project (.wbpj/.wbpz)."
+        ),
+    ),
+    "export_preset": HelpEntry(
+        title="Export Preset: Full CFD Package vs Rocket .step Only",
+        body=(
+            "Quick 1-click switch for what ork2cfd exports:\n\n"
+            "• Full CFD Package: Exports the fluid enclosure <rocket>_cfd.step, standalone "
+            "<rocket>_rocket.step, runnable ANSYS scripts, Workbench .wbpj, and 3D viewer.\n"
+            "• Rocket .step Only: Exports ONLY the standalone rocket CAD file "
+            "<rocket>_rocket.step (the actual rocket shape with per-component Named Selections "
+            "— NO fluid enclosure, NO scripts, NO Workbench wait) plus the 3D CAD viewer."
         ),
     ),
     # Section 2: Flight & Physics
@@ -268,11 +277,11 @@ HELP_TEXTS: dict[str, HelpEntry] = {
         ),
     ),
     "deliv_rocket_step": HelpEntry(
-        title="Deliverable: Standalone Rocket-Only .step (Named Parts)",
+        title="Export Option: Rocket-Only .step (No Enclosure)",
         body=(
             "Exports <rocket>_rocket.step + <rocket>_rocket_manifest.json containing a "
-            "watertight 3D solid of the rocket alone (no surrounding fluid box), with "
-            "individual axial seams and embedded XCAF Named Selections + distinct colors "
+            "watertight 3D solid of the physical rocket shape alone (no fluid enclosure), "
+            "with clean axial seams and embedded XCAF Named Selections + distinct colors "
             "for every main OpenRocket component:\n\n"
             "• Nosecones & Transitions (e.g., nose_cone, transition)\n"
             "• Individual Body Tubes (e.g., recovery_tube, avionics_tube, motor_tube, "
@@ -280,8 +289,7 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "• Per-Stage Fin Sets (e.g., sustainer_fins, stage2_fins / booster_fins)\n"
             "• Base Cap (rocket_base) & enabled Rail Buttons / Launch Lugs\n\n"
             "Ideal for opening directly in SolidWorks, ANSYS SpaceClaim/Discovery, Fusion "
-            "360, or structural/custom CFD setups where each rocket part needs its own "
-            "Named Selection."
+            "360, or custom structural/CFD setups where you want the rocket CAD alone."
         ),
     ),
     "deliv_scripts": HelpEntry(
