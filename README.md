@@ -2,6 +2,8 @@
 
 Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready `.step` CAD geometries, pre-configured ANSYS scripts, and ready-to-open ANSYS Workbench (`.wbpj` / `.wbpz`) projects from a simple desktop GUI or CLI.
 
+*** just run the ansys file and let its do its thing after generating the package 
+
 ## Features
 
 - **Simple Desktop GUI (`launch_gui.bat` / `ork2cfd`)**:
