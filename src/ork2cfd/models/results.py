@@ -119,6 +119,89 @@ class VerificationReport:
 
 
 @dataclass(frozen=True)
+class CfdZoneResult:
+    """Aerodynamic drag contribution for a single rocket wall boundary zone."""
+
+    zone: str
+    drag_force_n: float
+    cd: float
+
+
+@dataclass(frozen=True)
+class CfdMachPoint:
+    """Converged Fluent CFD drag result for one Mach operating point."""
+
+    mach: float
+    velocity_m_s: float
+    total_cd: float
+    total_drag_n: float
+    wall_yplus_avg: float | None = None
+    case_file: Path | None = None
+    data_file: Path | None = None
+    mach_contour_png: Path | None = None
+    pressure_contour_png: Path | None = None
+    zones: tuple[CfdZoneResult, ...] = ()
+
+
+@dataclass(frozen=True)
+class MeshRefinementLevel:
+    """Single mesh-refinement level evaluated during a grid-independence study."""
+
+    level: int
+    mesh_scale: float
+    surf_max_m: float
+    mesh_cells: int | None
+    min_orth_quality: float | None
+    total_cd: float
+    total_drag_n: float
+    wall_yplus_avg: float | None = None
+    rel_cd_change: float | None = None
+
+
+@dataclass(frozen=True)
+class MeshConvergenceReport:
+    """Summary, stopping diagnostics, and GCI metrics for a mesh-convergence study."""
+
+    converged: bool
+    cd_rel_tol: float
+    refinement_factor: float
+    levels: tuple[MeshRefinementLevel, ...]
+    optimal_level: int
+    finest_level: int
+    gci_fine_pct: float | None = None
+    richardson_cd: float | None = None
+    observed_order_p: float | None = None
+    stop_reason: str = "converged"
+    report_json: Path | None = None
+    report_csv: Path | None = None
+    report_md: Path | None = None
+    plot_png: Path | None = None
+
+
+@dataclass(frozen=True)
+class CfdSolveResult:
+    """Aggregated ANSYS Fluent CFD solve outputs parsed from cfd_summary.json / CSV."""
+
+    rocket_name: str
+    output_dir: Path
+    altitude_m: float
+    aoa_deg: float
+    sym_factor: float
+    s_ref_m2: float
+    mesh_cells: int | None = None
+    min_orth_quality: float | None = None
+    runs: tuple[CfdMachPoint, ...] = ()
+    results_csv: Path | None = None
+    summary_json: Path | None = None
+    mesh_convergence: MeshConvergenceReport | None = None
+
+    @property
+    def primary_run(self) -> CfdMachPoint | None:
+        """Return the primary (first) solved Mach operating point, if any."""
+        return self.runs[0] if self.runs else None
+
+
+@dataclass(frozen=True)
 class PackageResult:
     """Complete output package produced by the ork2cfd pipeline."""
 
@@ -140,4 +223,5 @@ class PackageResult:
     views_png_path: Path | None = None
     verification_json_path: Path | None = None
     verification_md_path: Path | None = None
+    cfd_result: CfdSolveResult | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)

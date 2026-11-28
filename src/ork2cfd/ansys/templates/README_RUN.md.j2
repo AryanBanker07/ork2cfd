@@ -19,7 +19,7 @@
 | Deliverable / Command | What It Completes Automatically |
 |---|---|
 | **`{{ wbpj_filename or (stem + "_cfd.wbpj") }}`** *(already built)* | Creates the **Fluid Flow (Fluent with Fluent Meshing)** system in Workbench, imports `{{ step_filename }}` into **Geometry** (in SI meters with Named Selections), and saves the project. Does **not** mesh or solve yet. |
-| **`python run_fluent.py`** *(run in terminal, `--mach 0.5 0.8 1.2`)* | Imports STEP → applies `rocket_fins` (`{{ "%.1f" | format(fin_face_size_m * 1000) }} mm`), `rocket_nosecone` (`{{ "%.1f" | format(nose_face_size_m * 1000) }} mm`) & BOI local sizing → surface mesh → Watertight region setup → $y^+$ uniform prisms (`FirstHeight = {{ "%.3e" | format(bl.first_layer_thickness_m) }} m`, `{{ bl.prism_layers }}` layers) → `poly-hexcore` volume mesh → solves Mach sweep & writes per-zone + total drag CSV (`aero_results.csv`, `rocketpy_drag.csv`). |
+| **`fluent 3ddp -meshing -g -t{{ flight.cores }} -py -i run_fluent.py`** *(native Fluent Python, no `pip install`)* or **`python run_fluent.py`** *(PyFluent `--mach 0.5 0.8 1.5`)* | Imports STEP → applies `rocket_fins` (`{{ "%.1f" | format(fin_face_size_m * 1000) }} mm`), `rocket_nosecone` (`{{ "%.1f" | format(nose_face_size_m * 1000) }} mm`) & BOI local sizing → surface mesh → Watertight region setup → $y^+$ uniform prisms (`FirstHeight = {{ "%.3e" | format(bl.first_layer_thickness_m) }} m`, `{{ bl.prism_layers }}` layers) → `poly-hexcore` volume mesh → solves Mach sweep & writes per-zone + total drag CSV (`aero_results.csv`, `rocketpy_drag.csv`). |
 | **`fluent_meshing.jou` + `fluent_solver.jou`** *(Fluent CLI/GUI)* | Same Watertight sizing, $y^+$ boundary layers, `poly-hexcore` volume mesh (`{{ stem }}.msh.h5`), solver models, boundary conditions, per-zone wall-forces report, and solved `{{ stem }}.cas.h5`. |
 
 ---
@@ -36,6 +36,7 @@
   - Prism layers: `{{ bl.prism_layers }}` (growth rate `{{ bl.prism_growth_rate }}`)
   - Surface mesh min/max: `{{ "%.4f" | format(bl.surface_min_size_m) }} m` / `{{ "%.4f" | format(bl.surface_max_size_m) }} m`
   - Estimated cells: `~{{ "{:,}".format(bl.estimated_cell_count) }}`
+  - Auto mesh convergence study: `{{ "ON" if mesh_conv.enabled else "OFF" }}` (tolerance `{{ "%.2f" | format(mesh_conv.cd_rel_tol * 100) }}%`, up to `{{ mesh_conv.max_levels }}` levels, `r = {{ "%.2f" | format(mesh_conv.refinement_factor) }}×`)
 
 ---
 
@@ -52,10 +53,16 @@ Run in Workbench:
 ```
 {% endif %}
 
-### Option B — Fully Automated PyFluent Run (No Clicking)
+### Option B — Fully Automated Fluent Run (Zero Extra Setup)
+Using stock ANSYS Fluent's built-in Python (`-py`):
 ```bash
-python run_fluent.py
+fluent 3ddp -meshing -g -t{{ flight.cores }} -py -i run_fluent.py
 ```
+Or with standalone `ansys-fluent-core` (`pip install -e ".[fluent]"`):
+```bash
+python run_fluent.py{% if mesh_conv.enabled %} --mesh-conv{% endif %}
+```
+*(Pass `--mesh-conv` / `--no-mesh-conv` or `ORK2CFD_MESH_SCALE=<factor>` to sweep or override spatial mesh density while keeping $y^+$ $\Delta y_1$ fixed.)*
 
 ### Option C — Classic Fluent TUI Journals (Workstation or HPC)
 ```bash

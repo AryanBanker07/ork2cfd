@@ -450,3 +450,31 @@ def test_rocket_only_step_component_named_selections(tmp_path: Path) -> None:
         )
         assert vr_b.overall_status == "PASS"
         assert vr_b.step_roundtrip_ok is True
+
+
+def test_symmetry_half_bois_unclipped_and_non_overlapping(synthetic_ork_file: Path) -> None:
+    from ork2cfd.geometry import validate_brep_shape
+
+    rocket = parse_ork_file(synthetic_ork_file)
+    rec = recommend_solver(rocket, FlightCondition(mach=0.8))
+    dom_out = build_cfd_domain(
+        rocket,
+        CadConfig(),
+        DomainConfig(
+            mode=DomainMode.SYMMETRY_HALF,
+            shape=EnclosureShape.CYLINDER,
+            boi=BoiConfig(enabled=True),
+        ),
+        rec,
+    )
+    bois = dict(dom_out.boi_solids)
+    assert set(bois.keys()) == {"boi_nearfield", "boi_wake"}
+
+    nf_stats = validate_brep_shape(bois["boi_nearfield"])
+    wk_stats = validate_brep_shape(bois["boi_wake"])
+    assert nf_stats.is_watertight and wk_stats.is_watertight
+    # Unclipped BOIs span symmetrically across z=0 so zero coplanar faces lie on symmetry plane
+    assert nf_stats.bbox_min_m[2] < -0.05 and nf_stats.bbox_max_m[2] > 0.05
+    assert wk_stats.bbox_min_m[2] < -0.05 and wk_stats.bbox_max_m[2] > 0.05
+    # Nearfield and wake BOIs remain strictly disjoint along X
+    assert nf_stats.bbox_max_m[0] < wk_stats.bbox_min_m[0]

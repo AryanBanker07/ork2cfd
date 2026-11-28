@@ -64,8 +64,8 @@ def generate_ansys_scripts(
     sym_mult = _symmetry_multiplier(rocket, config.domain.mode)
     wbpj_name = wbpj_target.name if config.deliverables.build_wbpj else None
 
-    fin_face_size_m = round(max(0.001, min(0.005, bl.surface_min_size_m * 1.5)), 6)
-    nose_face_size_m = round(max(0.002, min(0.008, bl.surface_min_size_m * 2.2)), 6)
+    fin_face_size_m = round(max(0.0015, min(0.005, bl.surface_max_size_m * 0.40)), 6)
+    nose_face_size_m = round(max(0.0025, min(0.008, bl.surface_max_size_m * 0.60)), 6)
     aoa_rad = math.radians(config.flight.aoa_deg)
     flow_dir_x = math.cos(aoa_rad)
     flow_dir_y = math.sin(aoa_rad)
@@ -110,6 +110,7 @@ def generate_ansys_scripts(
         "flow_dir_x": flow_dir_x,
         "flow_dir_y": flow_dir_y,
         "zone_names": zone_names,
+        "mesh_conv": config.mesh_convergence,
         "next_steps_md": build_ansys_next_steps_markdown(
             rocket=rocket,
             stem=stem,

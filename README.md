@@ -8,8 +8,8 @@ Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready
 
 - **Simple Desktop GUI (`launch_gui.bat` / `ork2cfd`)**:
   - Load any `.ork` file (XML, ZIP, or GZIP) and see live 2D side-profile previews of the rocket OML, fluid enclosure, and Bodies of Influence (BOIs).
-  - Real-time ISA atmosphere, Reynolds number, and $y^+$ boundary-layer prism calculator ($\Delta y_1$, prism count, growth rate, cell-count budget).
-  - One-click generation of the complete CFD package + direct button to open the output folder or launch local ANSYS Fluent.
+  - Real-time ISA atmosphere, Reynolds number, and $y^+$ boundary-layer prism calculator ($\Delta y_1$, prism count, growth rate, cell-count budget), plus an **Auto Mesh Convergence** toggle (`Cd Conv. Tol (%)`) that iteratively refines the mesh from coarse to fine until $|\Delta C_D|/C_D$ stabilizes within tolerance (reporting optimal mesh level, Roache GCI, Richardson $C_D$, and a convergence plot).
+  - Enable **Auto-Run Fluent & Compute Cd** (or click **Run CFD & Compute Cd** after generating files) to run headless ANSYS Fluent automatically and display Total $C_D$, Total Drag (N), Wall $y^+$, Mesh Cells, and per-zone $C_D$ in the in-GUI **CFD Drag ($C_D$) Results** card, alongside direct **Open in Fluent (Viz)**, **Open in CFD-Post**, **View Contours**, **View 3D CAD**, and **Open Output Folder** buttons.
 - **CFD-Clean Watertight `.step` Export**:
   - Automatically strips internal parts (bulkheads, centering rings, couplers, parachutes, motors).
   - Merges consecutive collinear body tubes into single smooth faces and fits curved nosecones/transitions (Haack / Von Kármán, Ogive, Ellipsoid, Parabolic, Power) to smooth B-splines.
@@ -23,7 +23,7 @@ Convert OpenRocket (`.ork`) rocket designs into watertight, ANSYS Fluent–ready
   - Generates `<stem>_cad_viewer.html` (offline WebGL 3D viewer with orbit/pan/zoom, X/Y/Z section clip plane, wireframe overlay, domain X-ray opacity slider, and Named Selection toggles), `<stem>_cad_views.png` (4-view CAD vs. `.ork` overlay diagnostic sheet), and `<stem>_verification.{json,md}` (`PASS`/`WARN`/`FAIL` B-Rep, dimensional fidelity, and STEP round-trip audit).
   - Open directly via the **View 3D CAD** button in the GUI or `ork2cfd verify <rocket.ork | model.step> --open`.
 - **Runnable ANSYS Scripts & Automated `.wbpj` Project**:
-  - `run_fluent.py` (PyFluent Watertight Meshing with local `rocket_fins` / `rocket_nosecone` & BOI sizing, $y^+$ prisms, `poly-hexcore` → Solver / `--mach` sweep → per-group + total `aero_results.csv` & `rocketpy_drag.csv`)
+  - `run_fluent.py` (Native Fluent `-py` & PyFluent Watertight Meshing with local `rocket_fins` / `rocket_nosecone` & BOI sizing, $y^+$ prisms, `poly-hexcore` → Solver / `--mach` sweep → per-group + total `aero_results.csv`, `rocketpy_drag.csv`, and `cfd_summary.json` without requiring external `ansys-fluent-core` pip install)
   - `fluent_meshing.jou` & `fluent_solver.jou` (Fluent Meshing & Solver TUI journals for GUI or HPC)
   - `discovery_prep.py` (ANSYS Discovery / SpaceClaim geometry & fallback Named Selection script)
   - `create_project.wbjn` + automatic batch `.wbpj` (and optional `.wbpz`) creation via local `RunWB2.exe` using the **Fluid Flow (Fluent with Fluent Meshing)** template.
@@ -57,6 +57,12 @@ ork2cfd convert rocket.ork -o ./rocket_cad --rocket-only
 
 # Generate full CFD package: STEP (+ optional STL) + CAD viewer/verification + ANSYS scripts + .wbpj
 ork2cfd convert rocket.ork -o ./rocket_cfd --mach 0.85 --mode fluid_domain --shape bullet --stl
+
+# Generate CFD package AND immediately run headless ANSYS Fluent to compute Cd
+ork2cfd convert rocket.ork -o ./rocket_cfd --mach 0.80 --mode symmetry_sector --run-cfd
+
+# Run progressive coarse-to-fine grid-independence study until |ΔCd|/Cd <= 1.0%
+ork2cfd convert rocket.ork -o ./rocket_gci --mach 0.80 --mode symmetry_sector --run-cfd --mesh-convergence --mesh-conv-tol 1.0
 
 # Verify & inspect any .ork design or exported .step file in 3D HTML + 4-view PNG
 ork2cfd verify rocket.ork -o ./verify_out --mode fluid_domain --open

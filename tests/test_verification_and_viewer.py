@@ -153,8 +153,11 @@ def test_standalone_step_load_and_verify(
 
     loaded = load_step_for_verification(step_path)
     assert loaded.report.is_watertight
-    assert loaded.boi_solids
+    assert [n for n, _ in loaded.boi_solids] == ["boi_nearfield", "boi_wake"]
     assert "rocket_nosecone" in loaded.report.named_selections
+    man_data = json.loads(man_path.read_text(encoding="utf-8"))
+    assert len(man_data["named_selections_faces"]) >= 5
+    assert set(man_data["boi_solids_meta"].keys()) == {"boi_nearfield", "boi_wake"}
     zones = tessellate_domain_zones(loaded)
     rep = verify_cad_model(loaded, zones, step_path=step_path)
     assert rep.overall_status in {"PASS", "WARN"}
@@ -196,3 +199,35 @@ def test_cli_verify_ork_and_step(
     assert (step_out / "TestRocket_cfd_cad_viewer.html").exists()
     assert (step_out / "TestRocket_cfd_cad_views.png").exists()
     assert (step_out / "TestRocket_cfd_verification.json").exists()
+
+
+def test_verifier_passes_overhanging_swept_fins(tmp_path: Path) -> None:
+    sample_947 = Path("sample orks/finalfinal947.ork")
+    if not sample_947.exists():
+        pytest.skip("sample orks/finalfinal947.ork not present")
+
+    rocket = parse_ork_file(sample_947).select_stages("stage_1")
+    rec = recommend_solver(rocket, FlightCondition(mach=0.80, altitude_m=500.0))
+    cad = CadConfig(tip_blunt_radius_m=0.0005)
+    dom = DomainConfig(
+        mode=DomainMode.SYMMETRY_HALF,
+        shape=EnclosureShape.CYLINDER,
+        boi=BoiConfig(enabled=True),
+    )
+    out = build_cfd_domain(rocket, cad, dom, rec)
+    step_p = tmp_path / "947_s1.step"
+    man_p = tmp_path / "947_s1_manifest.json"
+    export_step_with_names(out, step_p, man_p, rocket, cad, dom)
+
+    zones = tessellate_domain_zones(out, relative=True, include_bois=True)
+    report = verify_cad_model(
+        domain_out=out,
+        zone_meshes=zones,
+        rocket=rocket,
+        cad_config=cad,
+        domain_config=dom,
+        step_path=step_p,
+    )
+    by_name = {c.name: c for c in report.checks}
+    assert by_name["oml_axial_length_vs_ork"].status == "PASS"
+    assert report.overall_status == "PASS"

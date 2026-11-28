@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
+
+DEFAULT_SOLVER_ITERATIONS = 300
+DEFAULT_MESH_CONV_TOL = 0.01
+DEFAULT_MESH_CONV_MAX_LEVELS = 4
+DEFAULT_MESH_CONV_FACTOR = 1.35
+
+
+def default_fluent_cores() -> int:
+    """Return a sensible default Fluent core count: min(8, logical_cpus // 2), at least 1."""
+    logical = os.cpu_count() or 4
+    return max(1, min(8, max(1, logical // 2)))
 
 
 class DomainMode(str, Enum):
@@ -94,8 +106,20 @@ class FlightCondition:
     target_yplus: float = 1.0
     regime_override: FlowRegime = FlowRegime.AUTO
     mesh_preset: MeshPreset = MeshPreset.STANDARD
-    cores: int = 4
-    iterations: int = 400
+    cores: int = field(default_factory=default_fluent_cores)
+    iterations: int = DEFAULT_SOLVER_ITERATIONS
+    ram_limit_gb: float | None = None
+
+
+@dataclass(frozen=True)
+class MeshConvergenceConfig:
+    """Settings for progressive coarse-to-fine grid-independence CFD studies."""
+
+    enabled: bool = False
+    cd_rel_tol: float = DEFAULT_MESH_CONV_TOL
+    max_levels: int = DEFAULT_MESH_CONV_MAX_LEVELS
+    refinement_factor: float = DEFAULT_MESH_CONV_FACTOR
+    max_cells: int | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +133,7 @@ class DeliverableConfig:
     generate_scripts: bool = True
     build_wbpj: bool = True
     archive_wbpz: bool = False
+    auto_run_cfd: bool = False
     ansys_version: str | None = None
 
 
@@ -120,4 +145,5 @@ class PipelineConfig:
     domain: DomainConfig = field(default_factory=DomainConfig)
     flight: FlightCondition = field(default_factory=FlightCondition)
     deliverables: DeliverableConfig = field(default_factory=DeliverableConfig)
+    mesh_convergence: MeshConvergenceConfig = field(default_factory=MeshConvergenceConfig)
     stage_selection: str = "all"

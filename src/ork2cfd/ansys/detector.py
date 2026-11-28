@@ -19,6 +19,7 @@ class AnsysInstallation:
     runwb2_exe: Path | None
     fluent_exe: Path | None
     discovery_exe: Path | None
+    cfdpost_exe: Path | None = None
     is_student: bool = False
 
     @property
@@ -69,6 +70,7 @@ def detect_ansys_installations() -> list[AnsysInstallation]:
         runwb2 = resolved / "Framework" / "bin" / "Win64" / "RunWB2.exe"
         fluent = resolved / "fluent" / "ntbin" / "win64" / "fluent.exe"
         discovery = resolved / "Discovery" / "Discovery.exe"
+        cfdpost = resolved / "CFD-Post" / "bin" / "cfdpost.exe"
 
         wb_script_ver = _detect_wb_build_version(resolved, ver_code)
         installs.append(
@@ -80,6 +82,7 @@ def detect_ansys_installations() -> list[AnsysInstallation]:
                 runwb2_exe=runwb2 if runwb2.exists() else None,
                 fluent_exe=fluent if fluent.exists() else None,
                 discovery_exe=discovery if discovery.exists() else None,
+                cfdpost_exe=cfdpost if cfdpost.exists() else None,
                 is_student=is_student,
             )
         )

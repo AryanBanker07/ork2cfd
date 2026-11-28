@@ -15,7 +15,7 @@ from OCP.Interface import Interface_Static
 from OCP.STEPCAFControl import STEPCAFControl_Controller, STEPCAFControl_Reader
 from OCP.TCollection import TCollection_ExtendedString
 from OCP.TDataStd import TDataStd_Name
-from OCP.TDF import TDF_LabelSequence
+from OCP.TDF import TDF_Label, TDF_LabelSequence
 from OCP.TDocStd import TDocStd_Document
 from OCP.TopAbs import TopAbs_FACE
 from OCP.TopExp import TopExp_Explorer
@@ -132,6 +132,34 @@ def _extract_subshape_face_names(shape_tool: object, main_label) -> list[tuple[T
     return pairs
 
 
+def _iter_solid_labels(
+    shape_tool: object,
+    free: TDF_LabelSequence,
+) -> list[tuple[str, TopoDS_Shape, object]]:
+    """Unwrap free XCAF shapes or assembly components into (name, shape, proto_label)."""
+    items: list[tuple[str, TopoDS_Shape, object]] = []
+    for idx in range(1, free.Length() + 1):
+        lbl = free.Value(idx)
+        if shape_tool.IsAssembly_s(lbl):
+            comps = TDF_LabelSequence()
+            shape_tool.GetComponents_s(lbl, comps)
+            for cidx in range(1, comps.Length() + 1):
+                comp_lbl = comps.Value(cidx)
+                ref_lbl = TDF_Label()
+                has_ref = shape_tool.GetReferredShape_s(comp_lbl, ref_lbl)
+                proto_lbl = ref_lbl if has_ref else comp_lbl
+                name = _label_name(proto_lbl) or _label_name(comp_lbl)
+                shp = shape_tool.GetShape_s(comp_lbl)
+                if not shp.IsNull():
+                    items.append((name, shp, proto_lbl))
+        else:
+            name = _label_name(lbl)
+            shp = shape_tool.GetShape_s(lbl)
+            if not shp.IsNull():
+                items.append((name, shp, lbl))
+    return items
+
+
 def load_step_for_verification(step_path: Path) -> DomainBuildOutput:
     """Load any STEP file into DomainBuildOutput with Named Selection zone recovery."""
     if not step_path.exists():
@@ -144,12 +172,8 @@ def load_step_for_verification(step_path: Path) -> DomainBuildOutput:
     boi_solids: list[tuple[str, TopoDS_Shape]] = []
     main_candidates: list[tuple[str, TopoDS_Shape, object]] = []
 
-    for i in range(1, free.Length() + 1):
-        lbl = free.Value(i)
-        name = _label_name(lbl) or f"solid_{i}"
-        shp = shape_tool.GetShape_s(lbl)
-        if shp.IsNull():
-            continue
+    for i, (raw_name, shp, lbl) in enumerate(_iter_solid_labels(shape_tool, free), start=1):
+        name = raw_name or f"solid_{i}"
         if name.lower().startswith("boi_"):
             boi_solids.append((name, shp))
         else:
@@ -393,15 +417,22 @@ def _check_step_roundtrip(
         )
         return chk, False
 
-    candidates: list[tuple[str, TopoDS_Shape]] = []
-    for idx in range(1, free.Length() + 1):
-        lbl = free.Value(idx)
-        name = _label_name(lbl)
-        shp = shape_tool.GetShape_s(lbl)
-        if not shp.IsNull() and not name.lower().startswith("boi_"):
-            candidates.append((name, shp))
+    entries = _iter_solid_labels(shape_tool, free)
+    if not entries:
+        chk = VerificationCheck(
+            name="step_file_roundtrip",
+            status="FAIL",
+            measured="0 solids",
+            expected=">= 1 valid solid",
+            details="STEPCAFControl_Reader returned zero non-null shapes.",
+        )
+        return chk, False
 
-    main_shp = candidates[0][1] if candidates else shape_tool.GetShape_s(free.Value(1))
+    candidates: list[tuple[str, TopoDS_Shape]] = [
+        (name, shp) for name, shp, _lbl in entries if not name.lower().startswith("boi_")
+    ]
+
+    main_shp = candidates[0][1] if candidates else entries[0][1]
     re_stats = validate_brep_shape(main_shp, expect_2d=is_2d)
 
     bbox_diff = max(
@@ -423,7 +454,7 @@ def _check_step_roundtrip(
         name="step_file_roundtrip",
         status="PASS" if ok else "FAIL",
         measured=(
-            f"free={free.Length()}, valid={re_stats.is_valid}, "
+            f"solids={len(entries)}, free={free.Length()}, valid={re_stats.is_valid}, "
             f"wt={re_stats.is_watertight}, dBBox={bbox_diff:.4f}m"
         ),
         expected="SI_UNIT METRE, valid/watertight B-Rep, dBBox <= 0.01m",
@@ -462,6 +493,26 @@ def _check_stl_integrity(stl_path: Path) -> VerificationCheck:
         expected="Balanced multi-solid ASCII STL with finite coordinates",
         details=f"File size: {stl_path.stat().st_size:,} bytes",
     )
+
+
+def _expected_oml_axial_length(rocket: RocketModel) -> float:
+    """Return total axial OML span including swept or forward-protruding fins."""
+    x_min = 0.0
+    x_max = rocket.total_length
+    for fin in rocket.all_fins:
+        x_le = fin.global_root_le_x
+        x_min = min(x_min, x_le, fin.global_root_te_x)
+        x_max = max(x_max, x_le, fin.global_root_te_x)
+        if fin.points:
+            xs = [x_le + px for px, _py in fin.points]
+            x_min = min(x_min, min(xs))
+            x_max = max(x_max, max(xs))
+        else:
+            x_tip_le = x_le + fin.sweep_length
+            x_tip_te = x_tip_le + fin.tip_chord
+            x_min = min(x_min, x_tip_le, x_tip_te)
+            x_max = max(x_max, x_tip_le, x_tip_te)
+    return max(0.0, x_max - x_min)
 
 
 def verify_cad_model(
@@ -524,15 +575,16 @@ def verify_cad_model(
     # 4 & 5. Dimensional comparison vs OpenRocket model
     if rocket is not None and mode != DomainMode.AXISYMMETRIC_2D and oml_meshes:
         measured_len = oml_max[0] - oml_min[0]
+        expected_len = _expected_oml_axial_length(rocket)
         blunt_m = cad_config.tip_blunt_radius_m if cad_config else 0.001
-        len_tol = max(0.004, 0.008 * rocket.total_length) + 2.0 * blunt_m
-        len_ok = abs(measured_len - rocket.total_length) <= len_tol
+        len_tol = max(0.004, 0.008 * expected_len) + 2.0 * blunt_m
+        len_ok = abs(measured_len - expected_len) <= len_tol
         checks.append(
             VerificationCheck(
                 name="oml_axial_length_vs_ork",
                 status="PASS" if len_ok else "FAIL",
                 measured=f"{measured_len:.4f} m",
-                expected=f"{rocket.total_length:.4f} m (±{len_tol * 1000:.1f} mm)",
+                expected=f"{expected_len:.4f} m (±{len_tol * 1000:.1f} mm)",
                 details=f"Axial OML span X=[{oml_min[0]:.4f}, {oml_max[0]:.4f}] m",
             )
         )

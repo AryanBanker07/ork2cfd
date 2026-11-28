@@ -54,6 +54,10 @@
 {% endif %}
 {% endfor %}
 
+{% if solver_rec.solver_type == "density-based" %}
+/solve/set/flux-type ausm
+/solve/set/courant-number 1.5
+{% endif %}
 /solve/initialize/hyb-initialization
 /solve/iterate {{ flight.iterations }}
 

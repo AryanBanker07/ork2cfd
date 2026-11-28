@@ -238,7 +238,7 @@ class PreviewCanvas(ctk.CTkFrame):
         self.ax_oml.set_xlim(-0.06 * L, 1.06 * L)
         span_r = max(0.08, 0.72 * rocket.max_fin_span_diameter)
         self.ax_oml.set_ylim(-span_r, span_r)
-        self.ax_oml.set_aspect("equal", adjustable="datalim")
+        self.ax_oml.set_aspect("equal", adjustable="box")
         self.ax_oml.set_title(
             f"Rocket OML Side Profile — {rocket.name} "
             f"(L={L:.3f}m, D={rocket.max_diameter*1000:.1f}mm)",

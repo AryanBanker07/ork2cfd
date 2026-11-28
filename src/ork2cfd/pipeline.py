@@ -7,6 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .ansys.detector import select_best_installation
+from .ansys.fluent_launcher import run_fluent_solve_blocking
+from .ansys.mesh_convergence import run_mesh_convergence_blocking
 from .ansys.script_generator import generate_ansys_scripts
 from .ansys.workbench_builder import build_workbench_project
 from .geometry.domain_builder import build_cfd_domain, build_rocket_component_domain
@@ -16,7 +18,8 @@ from .geometry.tessellation import tessellate_domain_zones
 from .geometry.verifier import verify_cad_model, write_verification_reports
 from .geometry.viewer_exporter import export_cad_viewer_html, export_cad_views_png
 from .models.cfd import BoiConfig, DomainConfig, DomainMode, PipelineConfig
-from .models.results import GeometryReport, PackageResult, VerificationReport
+from .models.results import CfdSolveResult, GeometryReport, PackageResult, VerificationReport
+from .models.rocket import RocketModel
 from .parser.ork_parser import parse_ork_file
 from .physics.boundary_layer import compute_boundary_layer
 from .physics.regime import recommend_solver
@@ -35,6 +38,8 @@ def run_pipeline(
     output_dir: Path,
     config: PipelineConfig | None = None,
     progress_callback: ProgressCallback | None = None,
+    rocket_override: RocketModel | None = None,
+    fluent_line_callback: Callable[[str], None] | None = None,
 ) -> PackageResult:
     """Execute the full .ork -> CFD STEP -> ANSYS scripts -> .wbpj/.wbpz pipeline."""
     cfg = config or PipelineConfig()
@@ -46,7 +51,7 @@ def run_pipeline(
             progress_callback(msg, frac)
 
     _emit(f"Parsing OpenRocket file: {ork_path.name}...", 0.08)
-    parsed_rocket = parse_ork_file(ork_path)
+    parsed_rocket = rocket_override if rocket_override is not None else parse_ork_file(ork_path)
     rocket = parsed_rocket.select_stages(cfg.stage_selection)
     stem = sanitize_stem(rocket.name)
     stage_key = cfg.stage_selection.strip().lower()
@@ -75,6 +80,7 @@ def run_pipeline(
         cfg.deliverables.export_step
         or cfg.deliverables.generate_scripts
         or cfg.deliverables.build_wbpj
+        or cfg.deliverables.auto_run_cfd
     )
     need_cfd_domain = need_cfd_step or (
         (cfg.deliverables.export_stl or cfg.deliverables.export_verification)
@@ -221,7 +227,11 @@ def run_pipeline(
     wbpz_target = (out_dir / f"{stem}_cfd.wbpz") if cfg.deliverables.archive_wbpz else None
 
     script_paths: dict[str, Path] = {}
-    if cfg.deliverables.generate_scripts or cfg.deliverables.build_wbpj:
+    if (
+        cfg.deliverables.generate_scripts
+        or cfg.deliverables.build_wbpj
+        or cfg.deliverables.auto_run_cfd
+    ):
         assert step_path is not None and manifest_path is not None
         _emit(
             "Generating ANSYS PyFluent, Fluent journal, Discovery, and Workbench scripts...",
@@ -262,6 +272,49 @@ def run_pipeline(
                 expected_wbpz_path=wbpz_target,
             )
 
+    cfd_result: CfdSolveResult | None = None
+    if cfg.deliverables.auto_run_cfd:
+        fluent_log_cb = (
+            None if fluent_line_callback is not None else (lambda line: _emit(line, 0.94))
+        )
+        if ansys_install is None or ansys_install.fluent_exe is None:
+            warnings.append(
+                "Local ANSYS Fluent (fluent.exe) was not detected; skipped automated CFD solve."
+            )
+        elif cfg.mesh_convergence.enabled:
+            tol_pct = cfg.mesh_convergence.cd_rel_tol * 100.0
+            _emit(
+                f"Running progressive mesh convergence study via {ansys_install.label} "
+                f"({cfg.flight.cores} cores, tol={tol_pct:.2f}%)...",
+                0.90,
+            )
+            cfd_result = run_mesh_convergence_blocking(
+                output_dir=out_dir,
+                ansys_install=ansys_install,
+                conv_config=cfg.mesh_convergence,
+                base_preset=cfg.flight.mesh_preset,
+                cores=cfg.flight.cores,
+                surf_max_base_m=bl.surface_max_size_m,
+                rocket_name=rocket.name,
+                mach=cfg.flight.mach,
+                target_yplus=cfg.flight.target_yplus,
+                log_callback=fluent_log_cb,
+                line_callback=fluent_line_callback,
+            )
+        else:
+            _emit(
+                f"Running headless ANSYS Fluent via {ansys_install.label} "
+                f"({cfg.flight.cores} cores)...",
+                0.90,
+            )
+            cfd_result = run_fluent_solve_blocking(
+                output_dir=out_dir,
+                ansys_install=ansys_install,
+                cores=cfg.flight.cores,
+                log_callback=fluent_log_cb,
+                line_callback=fluent_line_callback,
+            )
+
     done_msg = (
         "Rocket-only CAD export complete."
         if not need_cfd_domain and rocket_step_path is not None
@@ -287,5 +340,6 @@ def run_pipeline(
         views_png_path=views_png_path,
         verification_json_path=verification_json_path,
         verification_md_path=verification_md_path,
+        cfd_result=cfd_result,
         warnings=tuple(dict.fromkeys(warnings)),
     )

@@ -11,10 +11,10 @@ from .atmosphere import compute_atmosphere
 
 _PRESET_FACTORS: dict[MeshPreset, tuple[float, float, float, float, float]] = {
     # (surf_min/D, surf_max/D, nearfield_boi/D, wake_boi/D, farfield_max/L)
-    MeshPreset.COARSE: (0.012, 0.120, 0.180, 0.450, 1.50),
-    MeshPreset.STUDENT_SAFE: (0.009, 0.090, 0.140, 0.350, 1.25),
-    MeshPreset.STANDARD: (0.005, 0.045, 0.065, 0.160, 0.85),
-    MeshPreset.FINE: (0.0025, 0.022, 0.032, 0.080, 0.50),
+    MeshPreset.COARSE: (0.015, 0.140, 0.450, 1.100, 1.50),
+    MeshPreset.STUDENT_SAFE: (0.012, 0.110, 0.380, 0.950, 1.25),
+    MeshPreset.STANDARD: (0.010, 0.085, 0.300, 0.800, 0.85),
+    MeshPreset.FINE: (0.005, 0.045, 0.180, 0.450, 0.50),
 }
 
 
@@ -76,6 +76,15 @@ def compute_boundary_layer(
         warnings.append(
             f"Target y+ = {target_yplus:.1f} falls in the buffer layer (5..30); "
             "prefer y+ <= 1 (wall-resolved) or y+ >= 30 (wall functions)."
+        )
+    has_sharp_thin_fins = any(
+        fin.thickness <= 0.005 and fin.cross_section.value in {"square", "double_wedge"}
+        for fin in rocket.all_fins
+    )
+    if has_sharp_thin_fins and target_yplus <= 2.0:
+        warnings.append(
+            "Thin square/double-wedge fins (thickness <= 5 mm) with y+ <= 2 can squeeze prism "
+            "layers at sharp edges; prefer target y+ = 30.0 if orthogonal quality drops."
         )
     if exceeds_student:
         warnings.append(

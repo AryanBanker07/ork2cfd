@@ -6,6 +6,10 @@ import json
 import zlib
 from pathlib import Path
 
+from OCP.Bnd import Bnd_Box
+from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 from OCP.Interface import Interface_Static
 from OCP.Quantity import Quantity_Color, Quantity_TOC_RGB
 from OCP.STEPCAFControl import STEPCAFControl_Controller, STEPCAFControl_Writer
@@ -15,6 +19,7 @@ from OCP.TDataStd import TDataStd_Name
 from OCP.TDocStd import TDocStd_Document
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
+from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.XCAFApp import XCAFApp_Application
 from OCP.XCAFDoc import XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_DocumentTool
@@ -23,6 +28,7 @@ from ..exceptions import GeometryBuildError
 from ..models.cfd import CadConfig, DomainConfig
 from ..models.rocket import RocketModel
 from .domain_builder import DomainBuildOutput
+from .profiles import SCALE_M_TO_MM
 
 # Distinct visual colors per CFD boundary zone for instant visual verification in CAD/ANSYS
 _ZONE_COLORS_RGB: dict[str, tuple[float, float, float]] = {
@@ -116,6 +122,7 @@ def export_step_with_names(
 
     shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
     color_tool = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+    layer_tool = XCAFDoc_DocumentTool.LayerTool_s(doc.Main())
 
     main_shape = _unwrap_single_solid(domain_out.main_shape)
     main_label = shape_tool.AddShape(main_shape, False)
@@ -128,7 +135,9 @@ def export_step_with_names(
             rgb = zone_color_rgb(entry.zone_name)
             qcol = Quantity_Color(rgb[0], rgb[1], rgb[2], Quantity_TOC_RGB)
             color_tool.SetColor(sub_label, qcol, XCAFDoc_ColorSurf)
+            layer_tool.SetLayer(sub_label, TCollection_ExtendedString(entry.zone_name))
 
+    part_entries: list[tuple[str, object]] = [(domain_out.main_name, main_label)]
     for boi_name, boi_shape in domain_out.boi_solids:
         boi_unwrapped = _unwrap_single_solid(boi_shape)
         boi_label = shape_tool.AddShape(boi_unwrapped, False)
@@ -136,10 +145,23 @@ def export_step_with_names(
         rgb = _ZONE_COLORS_RGB.get(boi_name, (0.3, 0.8, 0.8))
         qcol = Quantity_Color(rgb[0], rgb[1], rgb[2], Quantity_TOC_RGB)
         color_tool.SetColor(boi_label, qcol, XCAFDoc_ColorGen)
+        layer_tool.SetLayer(boi_label, TCollection_ExtendedString(boi_name))
+        part_entries.append((boi_name, boi_label))
+
+    # Wrap multi-solid CFD domains + BOIs in an XCAF root assembly so CAD readers
+    # preserve distinct part/solid names (fluid_domain, boi_nearfield, boi_wake).
+    if domain_out.boi_solids:
+        root_label = shape_tool.NewShape()
+        _set_label_name(root_label, rocket.name)
+        for part_name, part_lbl in part_entries:
+            comp_lbl = shape_tool.AddComponent(root_label, part_lbl, TopLoc_Location())
+            _set_label_name(comp_lbl, part_name)
+        shape_tool.UpdateAssemblies()
 
     writer = STEPCAFControl_Writer()
     writer.SetNameMode(True)
     writer.SetColorMode(True)
+    writer.SetLayerMode(True)
 
     if not writer.Transfer(doc, STEPControl_AsIs):
         raise GeometryBuildError("STEPCAFControl_Writer failed to transfer XCAF document.")
@@ -171,6 +193,25 @@ def _set_label_name(label, name: str) -> None:
     TDataStd_Name.Set_s(label, TCollection_ExtendedString(name))
 
 
+def _shape_bbox_area_m(shape: TopoDS_Shape) -> dict[str, object]:
+    """Compute SI-meter bounding box, center, and total surface area for a shape."""
+    inv_s = 1.0 / SCALE_M_TO_MM
+    box = Bnd_Box()
+    BRepBndLib.AddOptimal_s(shape, box, False, False)
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(shape, props)
+    bmin = [round(v * inv_s, 6) for v in (xmin, ymin, zmin)]
+    bmax = [round(v * inv_s, 6) for v in (xmax, ymax, zmax)]
+    bcen = [round(0.5 * (a + b), 6) for a, b in zip(bmin, bmax, strict=True)]
+    return {
+        "bbox_min_m": bmin,
+        "bbox_max_m": bmax,
+        "bbox_center_m": bcen,
+        "area_m2": round(float(props.Mass()) * (inv_s**2), 8),
+    }
+
+
 def _build_manifest_dict(
     domain_out: DomainBuildOutput,
     rocket: RocketModel,
@@ -180,10 +221,27 @@ def _build_manifest_dict(
 ) -> dict:
     """Construct structured geometry manifest describing zones, centroids, and reference metrics."""
     zones_summary: dict[str, list[list[float]]] = {}
+    faces_meta: list[dict[str, object]] = []
     for entry in domain_out.face_zones:
         zones_summary.setdefault(entry.zone_name, []).append(
             [round(c, 6) for c in entry.centroid_m]
         )
+        bmin = [round(v, 6) for v in entry.bbox_min_m]
+        bmax = [round(v, 6) for v in entry.bbox_max_m]
+        faces_meta.append(
+            {
+                "zone": entry.zone_name,
+                "centroid_m": [round(c, 6) for c in entry.centroid_m],
+                "bbox_min_m": bmin,
+                "bbox_max_m": bmax,
+                "bbox_center_m": [round(0.5 * (a + b), 6) for a, b in zip(bmin, bmax, strict=True)],
+                "area_m2": round(entry.area_m2, 8),
+            }
+        )
+
+    boi_solids_meta = {
+        boi_name: _shape_bbox_area_m(boi_shape) for boi_name, boi_shape in domain_out.boi_solids
+    }
 
     return {
         "rocket_name": rocket.name,
@@ -211,8 +269,10 @@ def _build_manifest_dict(
         "domain_bbox_min_m": [round(v, 5) for v in domain_out.bbox_domain_min_m],
         "domain_bbox_max_m": [round(v, 5) for v in domain_out.bbox_domain_max_m],
         "solid_names": [domain_out.main_name] + [n for n, _ in domain_out.boi_solids],
+        "boi_solids_meta": boi_solids_meta,
         "named_selections_counts": domain_out.report.named_selections,
         "named_selections_centroids_m": zones_summary,
+        "named_selections_faces": faces_meta,
         "validation": {
             "is_valid": domain_out.report.is_valid,
             "is_watertight": domain_out.report.is_watertight,

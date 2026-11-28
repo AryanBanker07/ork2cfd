@@ -71,15 +71,40 @@ def recommend_solver(rocket: RocketModel, flight: FlightCondition) -> SolverReco
             notes=tuple(notes),
         )
 
-    # Supersonic
+    # Supersonic (M >= 1.20)
     mach = max(1.2, flight.mach)
     mu_angle = math.asin(1.0 / mach)
     # Ensure radial farfield clears Mach cone well downstream of the rocket
     mach_cone_radial = 1.25 * math.tan(mu_angle) * 6.0
     radial_l = max(6.0, min(14.0, round(mach_cone_radial, 1)))
+    if mach < 2.0:
+        notes.append(
+            f"Moderate supersonic Pressure-Based Coupled ideal-gas + Sutherland solver "
+            f"selected for 1.2 <= M < 2.0 (Mach angle {math.degrees(mu_angle):.1f} deg; "
+            f"higher unstructured shock stability and ~30% lower RAM than density-based)."
+        )
+        return SolverRecommendation(
+            regime=regime,
+            solver_type="pressure-based",
+            energy_enabled=True,
+            fluid_model="ideal-gas",
+            viscosity_model="sutherland",
+            turbulence_model="k-omega-sst",
+            compressibility_effects=True,
+            roughness_height_m=roughness_m,
+            inlet_bc_type="pressure-far-field",
+            outlet_bc_type="pressure-far-field",
+            farfield_bc_type="pressure-far-field",
+            recommended_upstream_L=3.0,
+            recommended_downstream_L=10.0,
+            recommended_radial_L=radial_l,
+            courant_number=5.0,
+            notes=tuple(notes),
+        )
+
     notes.append(
-        f"Supersonic density-based implicit solver with ideal-gas + Sutherland viscosity "
-        f"(Mach angle {math.degrees(mu_angle):.1f} deg)."
+        f"High supersonic density-based implicit solver (AUSM + CFL ramp) with ideal-gas + "
+        f"Sutherland viscosity (Mach angle {math.degrees(mu_angle):.1f} deg)."
     )
     return SolverRecommendation(
         regime=regime,
@@ -96,6 +121,6 @@ def recommend_solver(rocket: RocketModel, flight: FlightCondition) -> SolverReco
         recommended_upstream_L=3.0,
         recommended_downstream_L=10.0,
         recommended_radial_L=radial_l,
-        courant_number=5.0,
+        courant_number=2.0,
         notes=tuple(notes),
     )

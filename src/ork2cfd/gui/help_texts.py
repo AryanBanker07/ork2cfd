@@ -135,12 +135,14 @@ HELP_TEXTS: dict[str, HelpEntry] = {
         body=(
             "Selects the ANSYS Fluent solver physics and boundary types:\n\n"
             "• auto (Recommended): Chooses regime automatically from Mach number.\n"
-            "• subsonic: Pressure-based coupled, constant density & viscosity, energy OFF, "
+            "• subsonic (M < 0.30): Pressure-based coupled, constant ρ/μ, energy OFF, "
             "velocity-inlet + pressure-outlet.\n"
-            "• transonic: Pressure-based coupled, ideal-gas + Sutherland viscosity, energy ON, "
-            "k-ω SST compressibility effects, pressure-far-field.\n"
-            "• supersonic: Density-based implicit, ideal-gas + Sutherland, energy ON, "
-            "pressure-far-field, and automatic radial Mach-cone clearance."
+            "• transonic (0.30 ≤ M < 1.20): Pressure-based coupled, ideal-gas + Sutherland, "
+            "energy ON, pressure-far-field.\n"
+            "• moderate supersonic (1.20 ≤ M < 2.00): Pressure-based coupled ideal-gas + "
+            "High-Speed Numerics for better unstructured shock stability and ~30% lower RAM.\n"
+            "• high supersonic (M ≥ 2.00): Density-based implicit with AUSM flux, farfield init, "
+            "and low-CFL warmup + Mach-cone radial clearance."
         ),
     ),
     "mesh_preset": HelpEntry(
@@ -155,23 +157,64 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "• fine: High-resolution mesh for final validation or grid-independence studies."
         ),
     ),
-    "cores": HelpEntry(
-        title="Fluent Parallel CPU Cores (-tN)",
+    "mesh_convergence": HelpEntry(
+        title="Auto Mesh Convergence (Grid Independence Study)",
         body=(
-            "Number of MPI parallel worker processes written into run_fluent.py and "
-            "fluent_meshing.jou / fluent_solver.jou (-tN flag).\n\n"
-            "• ANSYS Student licenses typically cap solver cores at 4.\n"
-            "• Academic/Research/HPC licenses can use physical CPU cores (e.g. 8–32)."
+            "Automatically sweeps from a coarse baseline mesh to progressively finer meshes "
+            "(dividing surface, fin, nose, BOI, and farfield sizes by r = 1.35× per level, "
+            "roughly 2.5× cells per step) while keeping first prism height Δy1 fixed at your "
+            "target y+.\n\n"
+            "• Stops as soon as |ΔCd| / Cd between consecutive grids drops within your Cd "
+            "Convergence Tolerance (default 1.0%) or max levels (4) is reached.\n"
+            "• Reports the optimal production mesh level, Roache Grid Convergence Index (GCI), "
+            "Richardson continuum Cd estimate, and a convergence plot PNG."
+        ),
+    ),
+    "mesh_conv_tol": HelpEntry(
+        title="Mesh Convergence Cd Relative Tolerance (%)",
+        body=(
+            "Stopping threshold for Auto Mesh Convergence:\n\n"
+            "• |Cd_k - Cd_{k-1}| / Cd_k × 100% ≤ Tolerance.\n"
+            "• 1.0% (Recommended): Engineering grid independence for rocket drag studies.\n"
+            "• 0.5%: Tighter academic/publication convergence "
+            "(may require 3–4 refinement levels).\n"
+            "• 2.0%: Fast preliminary screening under tighter compute or license budgets."
+        ),
+    ),
+    "cores": HelpEntry(
+        title="CPU Cores (-tN) vs Logical Threads",
+        body=(
+            "Number of MPI parallel worker processes passed to Fluent (-tN flag).\n\n"
+            "• Defaults automatically based on detected physical cores and RAM allotment "
+            "(~0.35 GB overhead per MPI rank, scaling best on physical cores rather than "
+            "hyperthreads).\n"
+            "• Exceeding physical cores adds MPI memory overhead with little speedup.\n"
+            "• ANSYS Student licenses typically cap solver cores at 4."
+        ),
+    ),
+    "ram_limit": HelpEntry(
+        title="RAM Allotment Limit (GB) & Safe Cell Budget",
+        body=(
+            "Target maximum host RAM (GB) allotted to ANSYS Fluent meshing and solving.\n\n"
+            "• ork2cfd leaves OS headroom (typically ~50–70% of total RAM or 90% of free RAM) "
+            "to prevent Windows MPI rank crashes (EXIT STATUS -1) on large poly-hexcore meshes.\n"
+            "• Estimates peak Fluent memory (~6.5 GB/M cells pressure-based, ~9.0 GB/M cells "
+            "density-based + 0.35 GB/rank) and caps Auto Mesh Convergence and Fin Optimization "
+            "verification cell counts safely below your limit.\n"
+            "• Use 'Apply RAM-Safe Rec.' to auto-set cores, RAM limit, mesh preset, y+, and mode."
         ),
     ),
     "iterations": HelpEntry(
         title="Steady-State Solver Iterations",
         body=(
             "Maximum steady-state solver iterations written into run_fluent.py and "
-            "fluent_solver.jou.\n\n"
-            "• Subsonic α=0°: 300–400 iterations is usually sufficient.\n"
-            "• Transonic / Supersonic / High-AoA: 600–1000+ iterations recommended so "
-            "shock waves, base pressure, and wake Cd monitors stabilize cleanly."
+            "fluent_solver.jou (default: 300).\n\n"
+            "• Automatic Early Stop: run_fluent.py configures a report-based convergence "
+            "condition on cd_total (stabilized within 1e-4 over 25 consecutive iterations, "
+            "after ignoring the first 50) across subsonic, transonic, and supersonic runs "
+            "so converged runs stop early even if wake residuals stall near 1e-3.\n"
+            "• Increase to 600–1000+ if high-AoA or complex transonic shocks need longer "
+            "before cd_total settles."
         ),
     ),
     # Section 3: CAD & Domain
@@ -346,6 +389,101 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "Y-Z tail projection, and domain + verification scorecard).\n"
             "• <rocket>_verification.json & .md — Machine- and human-readable PASS/WARN/FAIL "
             "verification audit."
+        ),
+    ),
+    "deliv_auto_cfd": HelpEntry(
+        title="Auto-Run Fluent & Compute Cd (Headless)",
+        body=(
+            "When enabled, ork2cfd automatically executes your local ANSYS Fluent "
+            "installation headlessly right after generating the CAD package "
+            "(`fluent 3ddp -meshing -g -tN -py -i run_fluent.py`) — zero external "
+            "`pip install` required.\n\n"
+            "• Performs Watertight Geometry meshing (`rocket_fins` / `rocket_nosecone` "
+            "local sizing, BOIs, uniform y+ prisms, `poly-hexcore`), solves at your "
+            "configured Mach point, writes `cfd_summary.json` + `aero_results.csv` + "
+            "solved `.cas.h5`/`.dat.h5` + centerline contour PNGs, and displays Total Cd "
+            "and per-component breakdown directly inside the GUI."
+        ),
+    ),
+    "sec_cfd_results": HelpEntry(
+        title="CFD Drag (Cd) Results & Direct Visualization Launchers",
+        body=(
+            "Displays solved ANSYS Fluent aerodynamic drag results directly inside ork2cfd "
+            "and provides 1-click launchers to visualize the flowfield:\n\n"
+            "• Run CFD & Compute Cd: Runs headless ANSYS Fluent on the active package "
+            "on demand, streaming live meshing/solver progress into the log and populating "
+            "Total Cd, Drag (N), Wall y+, Mesh Cells, and per-zone Cd breakdown.\n"
+            "• Open in Fluent (Viz): Launches ANSYS Fluent GUI with your solved `.cas.h5` "
+            "and `.dat.h5` pre-loaded so you can immediately plot contours and pathlines.\n"
+            "• Open in CFD-Post: Launches ANSYS CFD-Post directly loading `.dat.h5` for "
+            "full-360° Instancing Transform and publication renders.\n"
+            "• View Contours: Opens the Mach & Static Pressure contour PNGs rendered after solve."
+        ),
+    ),
+    "sec_fin_opt": HelpEntry(
+        title="Fin Shape Optimization (Bayesian GP-EI)",
+        body=(
+            "Optimizes the target stage's fin planform (root_chord, tip_chord, span, and "
+            "sweep_angle_deg) to minimize whole-stage/whole-rocket total drag coefficient (Cd) "
+            "under strict simulation budgets:\n\n"
+            "• Whole-Vehicle Cd: Always optimizes and reports total vehicle/stage Cd (nosecone, "
+            "body tubes, boattail, all fins, and base) rather than isolated fin Cd alone.\n"
+            "• Divergence & RAM Guards: Automatically filters diverged runs and keeps final "
+            "verification within your allotted RAM cell budget.\n"
+            "• Fixed Geometry Rules: Keeps the .ork fin cross-section and thickness locked.\n"
+            "• Algorithm: Feasible maximin LHS DoE followed by ARD Matérn-5/2 GP + Expected "
+            "Improvement (GP-EI) infill."
+        ),
+    ),
+    "opt_target_stage": HelpEntry(
+        title="Target Fin Stage to Optimize",
+        body=(
+            "Selects which stage's fin set is parameterized and reshaped during optimization "
+            "while simulating the full stack selected in Section 1:\n\n"
+            "• On multi-stage rockets, optimizing Booster fins keeps Sustainer fins fixed "
+            "at their baseline .ork dimensions.\n"
+            "• On single-stage rockets, selects that stage's main fin set."
+        ),
+    ),
+    "opt_max_sims": HelpEntry(
+        title="Maximum CFD Simulation Budget (Max Sims)",
+        body=(
+            "Total number of ANSYS Fluent (or dry-run) evaluations allocated to this "
+            "optimization campaign (minimum 3):\n\n"
+            "• ~10 sims: Fast campaign (1 Baseline + 4 LHS DoE + 4 GP-EI + 1 Verify) "
+            "capturing the main low-drag trend.\n"
+            "• 18–25 sims: Recommended for tight 4D Bayesian convergence.\n"
+            "• Checkpoints every simulation to optimization_history.json so you can stop "
+            "or increase Max Sims later and resume without re-running prior points."
+        ),
+    ),
+    "opt_min_sm": HelpEntry(
+        title="Minimum Barrowman Static Stability Margin (calibers)",
+        body=(
+            "Minimum aerodynamic static stability margin SM = (X_cp - X_cg) / D_ref "
+            "required across all evaluated fin candidates:\n\n"
+            "• Analytical Barrowman stability checks run inside the Bayesian optimizer "
+            "before any CAD/Fluent run, preventing wasted CFD solves on unstable fins.\n"
+            "• Typical subsonic/transonic flight guideline: ≥ 1.5 to 2.0 calibers."
+        ),
+    ),
+    "opt_verify_final": HelpEntry(
+        title="Final High-Resolution Verification Run",
+        body=(
+            "When enabled (and Max Sims ≥ 8 in live Fluent mode), reserves the final "
+            "simulation slot to re-simulate the winning lowest-drag fin geometry on a "
+            "finer verification mesh (Standard preset / y+ = 1.0 or one refinement step "
+            "finer than the locked baseline mesh)."
+        ),
+    ),
+    "opt_dry_run": HelpEntry(
+        title="Fast Dry-Run (Analytical Drag Proxy)",
+        body=(
+            "Uses an aerodynamic analytical Cd proxy (skin friction + form drag + "
+            "compressibility sweep relief) instead of launching ANSYS Fluent:\n\n"
+            "• Completes a full 10-step optimization campaign in a few seconds.\n"
+            "• Useful for previewing feasibility constraints, live convergence plots, and "
+            "OpenRocket .ork parameter export before launching multi-hour Fluent runs."
         ),
     ),
     "sec_next_steps": HelpEntry(

@@ -45,6 +45,8 @@ class FaceZoneEntry:
     zone_name: str
     centroid_m: tuple[float, float, float]
     area_m2: float
+    bbox_min_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    bbox_max_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
@@ -259,18 +261,11 @@ def build_cfd_domain(
         )
     warnings.extend(dom_stats.warnings)
 
-    # Build optional Bodies of Influence (BOIs)
-    boi_solids: list[tuple[str, TopoDS_Shape]] = []
-    if domain_config.boi.enabled:
-        raw_bois = _build_bois_mm(rocket, domain_config)
-        for b_name, b_shape in raw_bois:
-            if clip_solid is not None:
-                b_common = BRepAlgoAPI_Common(b_shape, clip_solid)
-                b_common.SetFuzzyValue(1e-3)
-                b_common.Build()
-                if b_common.IsDone():
-                    b_shape = b_common.Shape()
-            boi_solids.append((b_name, b_shape))
+    # Build optional Bodies of Influence (BOIs) unclipped so BOI faces never lie coplanar on
+    # symmetry cut planes and cannot trigger multi-connection overlaps in Fluent Meshing.
+    boi_solids: list[tuple[str, TopoDS_Shape]] = (
+        _build_bois_mm(rocket, domain_config) if domain_config.boi.enabled else []
+    )
 
     faces = _classify_fluid_domain_faces(
         fluid_shape=fluid_shape,
@@ -354,6 +349,8 @@ def _build_2d_axisymmetric_domain(
             zone_name="fluid_domain_2d",
             centroid_m=(0.0, 0.5 * r_far_mm / SCALE_M_TO_MM, 0.0),
             area_m2=stats.surface_area_m2,
+            bbox_min_m=stats.bbox_min_m,
+            bbox_max_m=stats.bbox_max_m,
         )
         for Exp in [TopExp_Explorer(dom_2d, TopAbs_FACE)]
         if Exp.More()
@@ -505,10 +502,11 @@ def _build_bois_mm(
     ax_nf = gp_Ax2(gp_Pnt(x_nf_start, 0.0, 0.0), gp_Dir(1.0, 0.0, 0.0))
     nf_solid = BRepPrimAPI_MakeCylinder(ax_nf, r_nf, x_nf_end - x_nf_start).Shape()
 
-    # Wake tapered cone/cylinder extending downstream behind tail
-    x_wk_start = 0.85 * L_m * SCALE_M_TO_MM
-    x_wk_end = (1.0 + boi.wake_length_L) * L_m * SCALE_M_TO_MM
-    r_wk_start = r_nf * 0.95
+    # Wake tapered cone extending downstream behind nearfield BOI with a positive axial gap
+    gap_mm = max(5.0, 0.005 * L_m * SCALE_M_TO_MM)
+    x_wk_start = x_nf_end + gap_mm
+    x_wk_end = max(x_wk_start + 50.0, (1.0 + boi.wake_length_L) * L_m * SCALE_M_TO_MM)
+    r_wk_start = r_nf
     r_wk_end = max(
         r_nf * 1.15,
         r_fin_max_m * boi.wake_end_radius_factor * SCALE_M_TO_MM,
@@ -578,7 +576,8 @@ def _classify_oml_faces(
     exp = TopExp_Explorer(oml_shape, TopAbs_FACE)
     while exp.More():
         face = TopoDS.Face_s(exp.Current())
-        (cx, cy, cz), area_mm2, _bbox, r_max_surf, max_excess = _face_metrics(face, rocket)
+        (cx, cy, cz), area_mm2, bbox, r_max_surf, max_excess = _face_metrics(face, rocket)
+        xmin, ymin, zmin, xmax, ymax, zmax = bbox
         zone = zone_fn(face, cx, r_max_surf, max_excess)
         entries.append(
             FaceZoneEntry(
@@ -586,6 +585,8 @@ def _classify_oml_faces(
                 zone_name=zone,
                 centroid_m=(cx * inv_s, cy * inv_s, cz * inv_s),
                 area_m2=area_mm2 * (inv_s**2),
+                bbox_min_m=(xmin * inv_s, ymin * inv_s, zmin * inv_s),
+                bbox_max_m=(xmax * inv_s, ymax * inv_s, zmax * inv_s),
             )
         )
         exp.Next()
@@ -754,7 +755,7 @@ def _classify_fluid_domain_faces(
     while exp.More():
         face = TopoDS.Face_s(exp.Current())
         (cx, cy, cz), area_mm2, bbox, r_max_surf, max_excess = _face_metrics(face, rocket)
-        xmin, _ymin, _zmin, xmax, _ymax, _zmax = bbox
+        xmin, ymin, zmin, xmax, ymax, zmax = bbox
 
         zone = _classify_outer_or_symmetry_face(
             face=face,
@@ -779,6 +780,8 @@ def _classify_fluid_domain_faces(
                 zone_name=zone,
                 centroid_m=(cx * inv_s, cy * inv_s, cz * inv_s),
                 area_m2=area_mm2 * (inv_s**2),
+                bbox_min_m=(xmin * inv_s, ymin * inv_s, zmin * inv_s),
+                bbox_max_m=(xmax * inv_s, ymax * inv_s, zmax * inv_s),
             )
         )
         exp.Next()

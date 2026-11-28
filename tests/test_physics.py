@@ -9,9 +9,12 @@ import pytest
 from ork2cfd.models import DomainMode, FlightCondition, FlowRegime, MeshPreset
 from ork2cfd.parser import parse_ork_file
 from ork2cfd.physics import (
+    SystemHardware,
     classify_regime,
     compute_atmosphere,
     compute_boundary_layer,
+    detect_system_hardware,
+    recommend_resources,
     recommend_solver,
 )
 
@@ -68,7 +71,82 @@ def test_regime_classification_and_solver_selection(synthetic_ork_file: Path) ->
     assert rec_trans.energy_enabled is True
     assert rec_trans.fluid_model == "ideal-gas"
 
+    rec_sup_mod = recommend_solver(rocket, FlightCondition(mach=1.75))
+    assert rec_sup_mod.regime == FlowRegime.SUPERSONIC
+    assert rec_sup_mod.solver_type == "pressure-based"
+    assert rec_sup_mod.energy_enabled is True
+    assert rec_sup_mod.courant_number == pytest.approx(5.0)
+
     rec_sup = recommend_solver(rocket, FlightCondition(mach=2.5))
     assert rec_sup.solver_type == "density-based"
     assert rec_sup.energy_enabled is True
     assert rec_sup.farfield_bc_type == "pressure-far-field"
+    assert rec_sup.courant_number == pytest.approx(2.0)
+
+
+def test_hardware_detection_and_resource_recommendations(synthetic_ork_file: Path) -> None:
+    hw_real = detect_system_hardware()
+    assert hw_real.total_ram_gb >= 1.0
+    assert 0.5 <= hw_real.available_ram_gb <= hw_real.total_ram_gb
+    assert 1 <= hw_real.physical_cores <= hw_real.logical_threads
+
+    rocket = parse_ork_file(synthetic_ork_file)
+    hw_8 = SystemHardware(
+        total_ram_gb=8.0, available_ram_gb=5.0, physical_cores=4, logical_threads=8
+    )
+    hw_15 = SystemHardware(
+        total_ram_gb=15.4, available_ram_gb=11.0, physical_cores=8, logical_threads=16
+    )
+    hw_64 = SystemHardware(
+        total_ram_gb=64.0, available_ram_gb=48.0, physical_cores=16, logical_threads=32
+    )
+
+    rec_8 = recommend_resources(
+        hardware=hw_8,
+        rocket=rocket,
+        mach=0.8,
+        solver_type="pressure-based",
+        estimated_cells=600_000,
+    )
+    rec_15_pb = recommend_resources(
+        hardware=hw_15,
+        rocket=rocket,
+        mach=1.75,
+        solver_type="pressure-based",
+        estimated_cells=600_000,
+    )
+    rec_15_db = recommend_resources(
+        hardware=hw_15,
+        rocket=rocket,
+        mach=2.2,
+        solver_type="density-based",
+        estimated_cells=600_000,
+    )
+    rec_64 = recommend_resources(
+        hardware=hw_64,
+        rocket=rocket,
+        mach=0.8,
+        solver_type="pressure-based",
+        estimated_cells=600_000,
+    )
+
+    assert rec_8.recommended_cores <= hw_8.physical_cores
+    assert rec_15_pb.recommended_cores <= hw_15.physical_cores
+    assert rec_64.recommended_cores <= hw_64.physical_cores
+    assert rec_8.max_safe_cells < rec_15_pb.max_safe_cells < rec_64.max_safe_cells
+    assert rec_15_db.max_safe_cells < rec_15_pb.max_safe_cells
+    assert rec_15_pb.recommended_yplus == pytest.approx(30.0)
+    assert rec_64.recommended_yplus == pytest.approx(1.0)
+    assert rec_15_pb.recommended_domain_mode == DomainMode.SYMMETRY_SECTOR
+
+    rec_ht = recommend_resources(
+        hardware=hw_15,
+        rocket=rocket,
+        mach=0.8,
+        solver_type="pressure-based",
+        estimated_cells=2_000_000,
+        requested_cores=16,
+    )
+    assert rec_ht.exceeds_ram_budget is True
+    assert any("physical CPU cores" in w for w in rec_ht.warnings)
+    assert any("exceeds allotted budget" in w for w in rec_ht.warnings)
