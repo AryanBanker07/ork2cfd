@@ -478,3 +478,27 @@ def test_symmetry_half_bois_unclipped_and_non_overlapping(synthetic_ork_file: Pa
     assert wk_stats.bbox_min_m[2] < -0.05 and wk_stats.bbox_max_m[2] > 0.05
     # Nearfield and wake BOIs remain strictly disjoint along X
     assert nf_stats.bbox_max_m[0] < wk_stats.bbox_min_m[0]
+
+
+def test_box_symmetry_half_classifies_outer_walls_as_farfield(
+    synthetic_ork_file: Path,
+) -> None:
+    rocket = parse_ork_file(synthetic_ork_file)
+    rec = recommend_solver(rocket, FlightCondition(mach=0.8, altitude_m=500.0))
+    dom_out = build_cfd_domain(
+        rocket,
+        CadConfig(tip_blunt_radius_m=0.001),
+        DomainConfig(
+            mode=DomainMode.SYMMETRY_HALF,
+            shape=EnclosureShape.BOX,
+            boi=BoiConfig(enabled=False),
+        ),
+        rec,
+    )
+    sym_faces = [e for e in dom_out.face_zones if e.zone_name == "symmetry"]
+    ff_faces = [e for e in dom_out.face_zones if e.zone_name == "farfield"]
+    assert len(sym_faces) == 1
+    assert len(ff_faces) >= 3
+    for sf in sym_faces:
+        # Symmetry cut plane must sit at z = 0, not at y = +/-r_far or z = +r_far
+        assert abs(sf.centroid_m[2]) < 1e-3

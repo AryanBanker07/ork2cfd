@@ -70,3 +70,25 @@ def test_collinear_body_tubes_merged_into_single_span(tmp_path: Path) -> None:
     pts, _ = build_merged_meridian_points_mm(rocket, CadConfig(tip_blunt_radius_m=0.001))
     assert pts[0] == (0.0, 0.0)
     assert pytest.approx(pts[-1][0], abs=1e-2) == 1950.0
+
+
+def test_secant_ogive_param_gt_one_endpoints() -> None:
+    nose = BodyComponent(
+        name="SecantGtOne",
+        component_type="nosecone",
+        length=0.40,
+        fore_radius=0.0,
+        aft_radius=0.05,
+        shape="ogive",
+        shape_parameter=1.25,
+        axial_start=0.0,
+        axial_end=0.40,
+    )
+    pts = generate_component_profile_points(nose, num_points=40, global_coords=True)
+    assert pytest.approx(pts[0][1], abs=1e-6) == 0.0
+    assert pts[1][1] > 0.0
+    assert pytest.approx(pts[-1][1], abs=1e-5) == 0.05
+    radii = [r for _x, r in pts]
+    assert all(r >= 0.0 for r in radii)
+    # Secant ogive with k > 1 has smaller radius of curvature than tangent ogive -> smooth bulge
+    assert max(radii) < 0.06

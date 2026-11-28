@@ -291,38 +291,47 @@ class RocketModel:
                 return False
         return True
 
+    def resolve_stage_indices(self, selection: str = "all") -> list[int]:
+        """Resolve a stage selection key to 0-based stage indices in `self.stages`."""
+        sel = selection.strip().lower()
+        n_stages = len(self.stages)
+        if n_stages == 0:
+            return []
+        if sel in {"", "all"} or n_stages <= 1:
+            return list(range(n_stages))
+        if sel == "sustainer":
+            return [0]
+        if sel == "booster":
+            return [n_stages - 1]
+        if sel.startswith("stage_") and sel[6:].isdigit():
+            k = int(sel[6:])
+            if not 1 <= k <= n_stages:
+                raise ValueError(f"Unknown stage index {k} for {n_stages}-stage rocket.")
+            return [k - 1]
+        if sel.isdigit():
+            k = int(sel)
+            if not 1 <= k <= n_stages:
+                raise ValueError(f"Unknown stage index {k} for {n_stages}-stage rocket.")
+            return [k - 1]
+        if sel.startswith("up_to_") and sel[6:].isdigit():
+            k = int(sel[6:])
+            if not 1 <= k <= n_stages:
+                raise ValueError(f"Unknown stage prefix count {k} for {n_stages}-stage rocket.")
+            return list(range(k))
+        matches = [idx for idx, st in enumerate(self.stages) if st.name.strip().lower() == sel]
+        if not matches:
+            raise ValueError(
+                f"Unknown stage selection '{selection}' for {n_stages}-stage rocket."
+            )
+        return [matches[0]]
+
     def select_stages(self, selection: str = "all") -> RocketModel:
         """Return a sub-model with selected stages and re-zeroed axial coordinates."""
         sel = selection.strip().lower()
         if sel in {"", "all"} or len(self.stages) <= 1:
             return self
 
-        chosen: list[Stage]
-        n_stages = len(self.stages)
-        if sel == "sustainer":
-            chosen = [self.stages[0]]
-        elif sel.startswith("stage_") and sel[6:].isdigit():
-            k = int(sel[6:])
-            if not 1 <= k <= n_stages:
-                raise ValueError(f"Unknown stage index {k} for {n_stages}-stage rocket.")
-            chosen = [self.stages[k - 1]]
-        elif sel.isdigit():
-            k = int(sel)
-            if not 1 <= k <= n_stages:
-                raise ValueError(f"Unknown stage index {k} for {n_stages}-stage rocket.")
-            chosen = [self.stages[k - 1]]
-        elif sel.startswith("up_to_") and sel[6:].isdigit():
-            k = int(sel[6:])
-            if not 1 <= k <= n_stages:
-                raise ValueError(f"Unknown stage prefix count {k} for {n_stages}-stage rocket.")
-            chosen = list(self.stages[:k])
-        else:
-            matches = [st for st in self.stages if st.name.strip().lower() == sel]
-            if not matches:
-                raise ValueError(
-                    f"Unknown stage selection '{selection}' for {n_stages}-stage rocket."
-                )
-            chosen = [matches[0]]
+        chosen = [self.stages[idx] for idx in self.resolve_stage_indices(selection)]
 
         offset = chosen[0].axial_start
         shifted_stages: list[Stage] = []

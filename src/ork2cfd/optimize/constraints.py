@@ -105,9 +105,17 @@ def estimate_cg_from_ork(ork_path: Path, stage_selection: str = "all") -> tuple[
         active_stages = stage_elems
     elif sel == "sustainer":
         active_stages = [stage_elems[0]]
+    elif sel == "booster":
+        active_stages = [stage_elems[-1]]
     elif sel.startswith("stage_") and sel[6:].isdigit():
         idx = int(sel[6:]) - 1
         active_stages = [stage_elems[idx]] if 0 <= idx < len(stage_elems) else stage_elems
+    elif sel.isdigit():
+        idx = int(sel) - 1
+        active_stages = [stage_elems[idx]] if 0 <= idx < len(stage_elems) else stage_elems
+    elif sel.startswith("up_to_") and sel[6:].isdigit():
+        k = int(sel[6:])
+        active_stages = stage_elems[:k] if 1 <= k <= len(stage_elems) else stage_elems
     else:
         matched = [s for s in stage_elems if (s.findtext("name") or "").strip().lower() == sel]
         active_stages = [matched[0]] if matched else stage_elems

@@ -92,3 +92,74 @@ def test_parse_real_team_ork_files(ork_path: Path) -> None:
     assert rocket.max_diameter > 0.05
     assert len(rocket.all_fins) >= 1
     assert rocket.reference_area > 0.0
+
+
+def test_parse_truncated_zip_gzip_raises_and_flipped_nosecone(tmp_path: Path) -> None:
+    import gzip
+    import io
+    import zipfile
+
+    # Truncated GZIP stream must raise OrkParseError (not EOFError / zlib.error)
+    gz_buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=gz_buf, mode="wb") as gf:
+        gf.write(make_synthetic_ork_xml().encode("utf-8"))
+    bad_gz = tmp_path / "trunc.ork"
+    bad_gz.write_bytes(gz_buf.getvalue()[:-12])
+    with pytest.raises(OrkParseError):
+        parse_ork_file(bad_gz)
+
+    # Corrupt DEFLATE stream inside ZIP must raise OrkParseError
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("rocket.ork", make_synthetic_ork_xml())
+    raw_zip = bytearray(zip_buf.getvalue())
+    # Corrupt compressed payload bytes before central directory
+    raw_zip[40] ^= 0xFF
+    bad_zip = tmp_path / "corrupt_zip.ork"
+    bad_zip.write_bytes(bytes(raw_zip))
+    with pytest.raises(OrkParseError):
+        parse_ork_file(bad_zip)
+
+    # Flipped nosecone becomes a tapering transition tailcone instead of zero radius
+    flipped_xml = """<?xml version="1.0" encoding="utf-8"?>
+<openrocket version="1.9">
+  <rocket>
+    <name>TailConeTest</name>
+    <subcomponents>
+      <stage>
+        <name>Sustainer</name>
+        <subcomponents>
+          <nosecone>
+            <name>Nose</name>
+            <length>0.30</length>
+            <shape>conical</shape>
+            <aftradius>0.04</aftradius>
+          </nosecone>
+          <bodytube>
+            <name>Body</name>
+            <length>0.50</length>
+            <radius>0.04</radius>
+          </bodytube>
+          <nosecone>
+            <name>FlippedTail</name>
+            <length>0.20</length>
+            <shape>ogive</shape>
+            <isflipped>true</isflipped>
+            <aftradius>0.04</aftradius>
+          </nosecone>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+</openrocket>
+"""
+    tail_p = tmp_path / "flipped_tail.ork"
+    tail_p.write_text(flipped_xml, encoding="utf-8")
+    rkt = parse_ork_file(tail_p)
+    tail = rkt.all_components[-1]
+    assert tail.component_type == "transition"
+    assert tail.fore_radius == pytest.approx(0.04)
+    assert tail.aft_radius == pytest.approx(0.0)
+    assert tail.radius_at_local_x(0.0) == pytest.approx(0.04)
+    assert tail.radius_at_local_x(0.10) > 0.015
+    assert tail.radius_at_local_x(0.20) == pytest.approx(0.0)

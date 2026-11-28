@@ -252,7 +252,7 @@
   </section>
 </main>
 
-<script id="scene-data" type="application/json">{{ scene_json }}</script>
+<script id="scene-data" type="application/json">{{ scene_json | safe }}</script>
 <script>
 (() => {
   const DATA = JSON.parse(document.getElementById("scene-data").textContent);

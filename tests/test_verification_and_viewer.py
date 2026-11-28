@@ -231,3 +231,32 @@ def test_verifier_passes_overhanging_swept_fins(tmp_path: Path) -> None:
     by_name = {c.name: c for c in report.checks}
     assert by_name["oml_axial_length_vs_ork"].status == "PASS"
     assert report.overall_status == "PASS"
+
+
+def test_cad_viewer_html_scene_json_not_escaped(
+    synthetic_ork_file: Path,
+    tmp_path: Path,
+) -> None:
+    import re
+
+    rocket = parse_ork_file(synthetic_ork_file)
+    rec = recommend_solver(rocket, FlightCondition(mach=0.80, altitude_m=500.0))
+    cad = CadConfig(tip_blunt_radius_m=0.001)
+    dom = DomainConfig(mode=DomainMode.OML_ONLY)
+    out = build_cfd_domain(rocket, cad, dom, rec)
+    zones = tessellate_domain_zones(out, relative=True, include_bois=False)
+    rep = verify_cad_model(out, zones, rocket=rocket, cad_config=cad, domain_config=dom)
+
+    html_path = tmp_path / "viewer.html"
+    export_cad_viewer_html(zones, rep, html_path, rocket.name, out, rocket=rocket)
+    html_text = html_path.read_text(encoding="utf-8")
+    assert "&#34;" not in html_text
+    match = re.search(
+        r'<script id="scene-data" type="application/json">(.*?)</script>',
+        html_text,
+        flags=re.DOTALL,
+    )
+    assert match is not None
+    parsed = json.loads(match.group(1))
+    assert parsed["zones"]
+    assert parsed["checks"]

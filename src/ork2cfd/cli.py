@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import webbrowser
 from pathlib import Path
 
@@ -45,6 +46,26 @@ from .physics.regime import recommend_solver
 from .pipeline import run_pipeline, sanitize_stem
 
 console = Console()
+
+
+def _require_finite(name: str, value: float) -> float:
+    val = float(value)
+    if not math.isfinite(val):
+        raise click.BadParameter(f"must be a finite number (got {value}).", param_hint=name)
+    return val
+
+
+def _require_positive(
+    name: str,
+    value: float,
+    minimum: float = 0.0,
+    inclusive: bool = False,
+) -> float:
+    val = _require_finite(name, value)
+    if (val < minimum) if inclusive else (val <= minimum):
+        cmp_lbl = f">= {minimum}" if inclusive else f"> {minimum}"
+        raise click.BadParameter(f"must be {cmp_lbl} (got {value}).", param_hint=name)
+    return val
 
 
 @click.group(invoke_without_command=True)
@@ -238,6 +259,17 @@ def convert(
     iterations: int,
 ) -> None:
     """Convert an .ork file into STEP geometry, ANSYS scripts, and Workbench project."""
+    _require_positive("--mach", mach)
+    _require_finite("--alt", altitude_m)
+    _require_finite("--aoa", aoa_deg)
+    _require_positive("--yplus", target_yplus)
+    _require_finite("--blunt-mm", blunt_mm)
+    _require_positive("--cores", float(cores), minimum=1.0, inclusive=True)
+    _require_positive("--iters", float(iterations), minimum=1.0, inclusive=True)
+    _require_positive("--mesh-conv-tol", mesh_conv_tol)
+    _require_positive("--mesh-conv-levels", float(mesh_conv_levels), minimum=1.0, inclusive=True)
+    _require_positive("--mesh-conv-factor", mesh_conv_factor, minimum=1.0, inclusive=False)
+
     rocket = parse_ork_file(ork_file).select_stages(stage)
     suffix = "rocket" if rocket_only else "cfd"
     target_dir = out_dir or (ork_file.parent / f"{sanitize_stem(rocket.name)}_{suffix}")
@@ -695,6 +727,19 @@ def optimize_fins(
     resume: bool,
 ) -> None:
     """Optimize OpenRocket fin shape to minimize Cd within <= max-sims ANSYS runs."""
+    _require_positive("--max-sims", float(max_sims), minimum=3.0, inclusive=True)
+    _require_positive("--mach", mach)
+    _require_finite("--alt", altitude_m)
+    _require_finite("--aoa", aoa_deg)
+    _require_positive("--min-sm", min_sm)
+    _require_positive("--yplus", target_yplus)
+    _require_positive("--mesh-conv-tol", mesh_conv_tol)
+    _require_finite("--blunt-mm", blunt_mm)
+    _require_positive("--cores", float(cores), minimum=1.0, inclusive=True)
+    _require_positive("--iters", float(iterations), minimum=1.0, inclusive=True)
+    if cg_m is not None:
+        _require_finite("--cg-m", cg_m)
+
     rocket = parse_ork_file(ork_file).select_stages(stage)
     target_dir = out_dir or (ork_file.parent / f"{sanitize_stem(rocket.name)}_fin_opt")
     active_params = tuple(p.strip() for p in params.split(",") if p.strip())

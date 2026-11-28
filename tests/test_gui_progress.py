@@ -227,7 +227,9 @@ def test_run_fluent_solve_blocking_line_callback(
     assert "[ork2cfd]" in milestone_lines[0]
 
 
-def test_gui_live_progress_widgets_and_theme(synthetic_ork_file: Path) -> None:
+def test_gui_live_progress_widgets_and_theme(
+    synthetic_ork_file: Path, tmp_path: Path
+) -> None:
     try:
         app = Ork2CfdApp(initial_ork=synthetic_ork_file)
         app.withdraw()
@@ -309,5 +311,57 @@ def test_gui_live_progress_widgets_and_theme(synthetic_ork_file: Path) -> None:
             app._load_ork(sample_947)
             assert len(app._opt_target_label_to_key) == 2
             assert list(app._opt_target_label_to_key.values()) == ["stage_2", "stage_1"]
+
+        # _on_opt_complete tolerates non-numeric var_opt_min_sm and honors min_sm_cal < 1.0
+        from ork2cfd.models import CfdMachPoint, CfdSolveResult
+        from ork2cfd.optimize import FinOptimizationResult
+
+        app.var_opt_min_sm.set("invalid_sm")
+        fake_opt_res = FinOptimizationResult(
+            output_dir=tmp_path,
+            target_stage_name="Booster",
+            baseline_eval=ev1,
+            best_eval=ev2,
+            verification_eval=None,
+            evaluations=(ev1, ev2),
+            optimized_ork_path=tmp_path / "opt.ork",
+            history_json_path=tmp_path / "hist.json",
+            summary_csv_path=tmp_path / "sum.csv",
+            report_md_path=tmp_path / "rep.md",
+            best_step_path=None,
+            delta_cd=-0.08,
+            delta_cd_pct=-12.12,
+        )
+        app._on_opt_complete(fake_opt_res, min_sm_cal=0.6)
+        assert "Best #2" in app.lbl_opt_headline.cget("text")
+
+        # Diverged standalone CFD result is flagged in GUI headline
+        div_cfd = CfdSolveResult(
+            rocket_name="TestRocket",
+            output_dir=tmp_path,
+            altitude_m=500.0,
+            aoa_deg=0.0,
+            sym_factor=4.0,
+            s_ref_m2=0.01,
+            runs=(CfdMachPoint(0.8, 270.0, -5.0, -500.0, 2.0, diverged=True),),
+        )
+        app._display_cfd_result(div_cfd)
+        assert "[DIVERGED]" in app.lbl_cd_headline.cget("text")
     finally:
         app.destroy()
+
+
+def test_cli_rejects_invalid_numeric_flags(synthetic_ork_file: Path) -> None:
+    from click.testing import CliRunner
+
+    from ork2cfd.cli import main as cli_main
+
+    runner = CliRunner()
+    res_mach = runner.invoke(cli_main, ["convert", str(synthetic_ork_file), "--mach", "-0.5"])
+    assert res_mach.exit_code != 0
+    res_yp = runner.invoke(cli_main, ["convert", str(synthetic_ork_file), "--yplus", "0"])
+    assert res_yp.exit_code != 0
+    res_opt = runner.invoke(
+        cli_main, ["optimize-fins", str(synthetic_ork_file), "--cores", "0", "--dry-run"]
+    )
+    assert res_opt.exit_code != 0

@@ -6,6 +6,7 @@ import gzip
 import io
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from pathlib import Path
 
 from ..exceptions import OrkParseError
@@ -80,12 +81,12 @@ def _load_xml_root(file_path: Path) -> ET.Element:
                 if target is None:
                     raise OrkParseError(f"ZIP archive '{file_path.name}' is empty.")
                 raw_bytes = zf.read(target)
-        except zipfile.BadZipFile as exc:
+        except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError) as exc:
             raise OrkParseError(f"Corrupt ZIP .ork archive '{file_path}': {exc}") from exc
     elif raw_bytes.startswith(b"\x1f\x8b"):
         try:
             raw_bytes = gzip.decompress(raw_bytes)
-        except OSError as exc:
+        except (OSError, EOFError, zlib.error) as exc:
             raise OrkParseError(f"Corrupt GZIP .ork file '{file_path}': {exc}") from exc
 
     try:
@@ -309,6 +310,7 @@ def _parse_body_component(
         fore_r = 0.0
         if _clean_bool(elem.findtext("isflipped"), False):
             fore_r, aft_r = aft_r, fore_r
+            c_type = "transition"
             warnings.append(f"NoseCone '{name}' is flipped; treating as tailcone profile.")
     elif c_type == "transition":
         fore_r = _clean_float(elem.findtext("foreradius"), 0.0)

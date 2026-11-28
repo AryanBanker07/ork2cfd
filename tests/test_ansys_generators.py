@@ -777,3 +777,153 @@ def test_fluid_domain_360_fixes_in_generated_run_fluent(
     ns["_configure_cd_convergence"](fake_sroot, 300)
     assert conv_reports.deleted == [["cd_total_conv"]]
     assert "cd_total_conv" in conv_reports.items
+
+
+def test_script_escaping_subsonic_bc_zone_matching_and_launcher_guards(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+    import json
+
+    from ork2cfd.ansys.detector import AnsysInstallation
+    from ork2cfd.ansys.fluent_launcher import (
+        launch_fluent_visualization,
+        parse_cfd_results,
+        run_fluent_solve_blocking,
+    )
+    from ork2cfd.exceptions import AnsysError
+    from ork2cfd.models import BodyComponent, DomainConfig, DomainMode, RocketModel, Stage
+
+    tricky_rocket = RocketModel(
+        name='3" Nike\nBooster',
+        stages=(
+            Stage(
+                name="Stage 1",
+                components=(
+                    BodyComponent(
+                        name="Nose",
+                        component_type="nosecone",
+                        length=0.3,
+                        fore_radius=0.0,
+                        aft_radius=0.04,
+                        axial_start=0.0,
+                        axial_end=0.3,
+                    ),
+                ),
+                axial_start=0.0,
+                axial_end=0.3,
+            ),
+        ),
+    )
+    cfg = PipelineConfig(
+        domain=DomainConfig(mode=DomainMode.FLUID_DOMAIN),
+        flight=FlightCondition(mach=0.20, altitude_m=500.0, aoa_deg=0.0),
+        deliverables=DeliverableConfig(archive_wbpz=True),
+    )
+    bl = compute_boundary_layer(tricky_rocket, cfg.flight, cfg.domain.mode)
+    rec = recommend_solver(tricky_rocket, cfg.flight)
+    assert rec.farfield_bc_type == "velocity-inlet"
+
+    step_p = tmp_path / "nike_cfd.step"
+    man_p = tmp_path / "nike_manifest.json"
+    step_p.write_text("ISO-10303-21;", encoding="utf-8")
+    man_p.write_text(
+        json.dumps({"named_selections_counts": {"farfield": 2, "outlet": 1, "rocket_body": 1}}),
+        encoding="utf-8",
+    )
+
+    scripts = generate_ansys_scripts(
+        output_dir=tmp_path,
+        stem="nike",
+        rocket=tricky_rocket,
+        config=cfg,
+        bl=bl,
+        solver_rec=rec,
+        step_path=step_p,
+        manifest_path=man_p,
+    )
+    for py_name in ("run_fluent.py", "create_project.wbjn", "discovery_prep.py"):
+        ast.parse(scripts[py_name].read_text(encoding="utf-8"), filename=py_name)
+
+    run_src = scripts["run_fluent.py"].read_text(encoding="utf-8")
+    assert "sys.exit(1)" in run_src
+    assert "_clear_cd_convergence" in run_src
+
+    ns: dict[str, object] = {"__name__": "test_sub", "__file__": str(scripts["run_fluent.py"])}
+    exec(compile(run_src, str(scripts["run_fluent.py"]), "exec"), ns)
+    match_fn = ns["_match_zones"]
+    assert match_fn(["my_inlet_wall", "inlet:1", "inlet.2", "inlet"], "inlet") == [
+        "inlet",
+        "inlet.2",
+        "inlet:1",
+    ]
+
+    mesh_jou = scripts["fluent_meshing.jou"].read_text(encoding="utf-8")
+    assert "rocket_boattail" not in mesh_jou
+    assert "rocket_fins" not in mesh_jou
+    assert "Update Regions" in mesh_jou and "dead0" in mesh_jou
+
+    # Stale cfd_summary.json must be removed before run so failed Fluent cannot replay stale Cd
+    pkg = tmp_path / "stale_pkg"
+    pkg.mkdir()
+    (pkg / "run_fluent.py").write_text("# runner", encoding="utf-8")
+    stale_sum = pkg / "cfd_summary.json"
+    stale_sum.write_text(
+        json.dumps({
+            "rocket_name": "R",
+            "runs": [{"mach": 0.8, "velocity_m_s": 270.0, "total_cd": 0.5, "total_drag_n": 100.0}],
+        }),
+        encoding="utf-8",
+    )
+    fluent_exe = tmp_path / "fluent.exe"
+    fluent_exe.write_text("stub", encoding="utf-8")
+    install = AnsysInstallation("25.2", "v252", "25.2.170", tmp_path, None, fluent_exe, None)
+
+    class _CrashZeroProc:
+        stdout = io.StringIO("RuntimeError: boom\n")
+
+        def wait(self) -> int:
+            return 1
+
+    monkeypatch.setattr(
+        "ork2cfd.ansys.fluent_launcher.subprocess.Popen", lambda *a, **k: _CrashZeroProc()
+    )
+    with pytest.raises(AnsysError):
+        run_fluent_solve_blocking(pkg, install, cores=2)
+    assert not stale_sum.exists()
+
+    # Nested case path in launch_fluent_visualization + diverged flag in parse_cfd_results
+    nested_dir = pkg / "sim_03_bayesian_ei"
+    nested_dir.mkdir()
+    nested_cas = nested_dir / "Rocket.cas.h5"
+    nested_dat = nested_dir / "Rocket.dat.h5"
+    nested_cas.write_text("cas", encoding="utf-8")
+    nested_dat.write_text("dat", encoding="utf-8")
+    monkeypatch.setattr(
+        "ork2cfd.ansys.fluent_launcher.subprocess.Popen",
+        lambda *_a, **_k: io.StringIO(""),
+    )
+    launch_fluent_visualization(pkg, install, case_path=nested_cas, cores=2)
+    assert (pkg / "_open_viz.jou").read_text(encoding="utf-8").strip() == (
+        '/file/read-case-data "sim_03_bayesian_ei/Rocket.cas.h5"'
+    )
+
+    stale_sum.write_text(
+        json.dumps({
+            "rocket_name": "R",
+            "runs": [
+                {
+                    "mach": 1.2,
+                    "velocity_m_s": 400.0,
+                    "total_cd": -5.0,
+                    "total_drag_n": -900.0,
+                    "diverged": True,
+                }
+            ],
+        }),
+        encoding="utf-8",
+    )
+    parsed = parse_cfd_results(pkg)
+    assert parsed is not None and parsed.primary_run is not None
+    assert parsed.primary_run.diverged is True

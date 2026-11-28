@@ -150,6 +150,7 @@ def _write_outputs(
     optimized_ork_path: Path | None = None,
     best_step_path: Path | None = None,
     locked_mesh: LockedMeshCharacteristics | None = None,
+    config_signature: dict[str, object] | None = None,
 ) -> tuple[Path, Path, Path, Path | None]:
     """Write checkpoint JSON, summary CSV, Cd vs fin shape plot, and Markdown report."""
     history_path = output_dir / "optimization_history.json"
@@ -176,6 +177,7 @@ def _write_outputs(
         "cg_x_m": round(cg_x_m, 5),
         "cg_source": cg_source,
         "active_params": list(config.active_params),
+        "config_signature": config_signature,
         "bounds": bounds.to_dict(),
         "locked_mesh": locked_mesh.to_dict() if locked_mesh is not None else None,
         "evaluations": [e.to_dict() for e in evals],
@@ -616,26 +618,46 @@ def run_fin_optimization(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     full_rocket = parse_ork_file(src_ork)
+    selected_indices = full_rocket.resolve_stage_indices(cfg.stage_selection)
     sim_rocket = full_rocket.select_stages(cfg.stage_selection)
     stem = sanitize_stem(sim_rocket.name)
 
     target_ids, target_stage, parent_comp, target_fin = resolve_target_fin(
         sim_rocket, cfg.target_fin_stage
     )
-    # Map target stage back to full_rocket stage index for write_modified_ork
-    full_target_ids, _f_stage, _f_comp, _f_fin = resolve_target_fin(
-        full_rocket, target_stage.name
-    )
+    # Map target stage index directly to full_rocket so identical stage names never collide
+    full_target_ids = (selected_indices[target_ids[0]], target_ids[1], target_ids[2])
 
+    stage_offset_m = (
+        full_rocket.stages[selected_indices[0]].axial_start if selected_indices else 0.0
+    )
     if cfg.cg_x_m is not None:
-        cg_x_m = float(cfg.cg_x_m)
-        cg_source = "user_specified"
+        raw_cg = float(cfg.cg_x_m)
+        if stage_offset_m > 1e-6 and raw_cg >= stage_offset_m:
+            cg_x_m = raw_cg - stage_offset_m
+            cg_source = "user_specified_shifted"
+        else:
+            cg_x_m = raw_cg
+            cg_source = "user_specified"
     else:
         cg_x_m, cg_source = estimate_cg_from_ork(src_ork, cfg.stage_selection)
 
     design_bounds = bounds or default_bounds_for_fin(target_fin, parent_comp)
     base_candidate = candidate_from_fin(target_fin)
     domain_mode = resolve_domain_mode(sim_rocket, cfg)
+    config_signature: dict[str, object] = {
+        "stem": stem,
+        "stage_selection": cfg.stage_selection,
+        "target_stage_index": int(full_target_ids[0]),
+        "target_stage_name": target_stage.name,
+        "mach": round(float(cfg.mach), 6),
+        "altitude_m": round(float(cfg.altitude_m), 3),
+        "aoa_deg": round(float(cfg.aoa_deg), 4),
+        "min_static_margin_cal": round(float(cfg.min_static_margin_cal), 4),
+        "cg_x_m": round(float(cg_x_m), 5),
+        "active_params": list(cfg.active_params),
+        "dry_run": bool(cfg.dry_run),
+    }
 
     def _check_feasibility(cand: FinCandidate) -> tuple[RocketModel, object]:
         mutated = apply_candidate_to_rocket(sim_rocket, target_ids, cand)
@@ -645,15 +667,33 @@ def run_fin_optimization(
         )
         return mutated, stab
 
+    def _resume_matches(saved: dict[str, object]) -> bool:
+        saved_sig = saved.get("config_signature")
+        if isinstance(saved_sig, dict):
+            return saved_sig == config_signature
+        return (
+            saved.get("stem") == stem
+            and saved.get("target_stage_name") == target_stage.name
+            and round(float(saved.get("mach", -1.0)), 6) == config_signature["mach"]
+            and round(float(saved.get("altitude_m", -1e9)), 3) == config_signature["altitude_m"]
+            and round(float(saved.get("aoa_deg", -1e9)), 4) == config_signature["aoa_deg"]
+            and round(float(saved.get("min_static_margin_cal", -1.0)), 4)
+            == config_signature["min_static_margin_cal"]
+            and list(saved.get("active_params") or []) == config_signature["active_params"]
+        )
+
     history_file = out_dir / "optimization_history.json"
     evals: list[SimEvaluation] = []
     initial_locked_mesh: LockedMeshCharacteristics | None = None
     if cfg.resume and history_file.exists():
         try:
             saved = json.loads(history_file.read_text(encoding="utf-8"))
-            evals = [SimEvaluation.from_dict(item) for item in (saved.get("evaluations") or [])]
-            if isinstance(saved.get("locked_mesh"), dict):
-                initial_locked_mesh = LockedMeshCharacteristics.from_dict(saved["locked_mesh"])
+            if isinstance(saved, dict) and _resume_matches(saved):
+                evals = [SimEvaluation.from_dict(item) for item in (saved.get("evaluations") or [])]
+                if isinstance(saved.get("locked_mesh"), dict):
+                    initial_locked_mesh = LockedMeshCharacteristics.from_dict(
+                        saved["locked_mesh"]
+                    )
         except Exception:
             evals = []
             initial_locked_mesh = None
@@ -663,7 +703,7 @@ def run_fin_optimization(
             fallback_preset=cfg.mesh_preset,
             fallback_yplus=cfg.target_yplus,
         )
-    if initial_locked_mesh is None:
+    if cfg.resume and initial_locked_mesh is None:
         baseline_conv = out_dir / "sim_01_baseline" / "mesh_convergence.json"
         if baseline_conv.exists():
             initial_locked_mesh = load_locked_mesh_from_convergence(
@@ -793,6 +833,7 @@ def run_fin_optimization(
             design_bounds,
             evals,
             locked_mesh=locked_mesh_box[0],
+            config_signature=config_signature,
         )
         if eval_callback is not None:
             eval_callback(list(evals))
@@ -990,6 +1031,7 @@ def run_fin_optimization(
         optimized_ork_path=optimized_ork,
         best_step_path=best_step_path,
         locked_mesh=locked_mesh_box[0],
+        config_signature=config_signature,
     )
     if progress_callback is not None:
         progress_callback("Fin optimization complete.", 1.0)

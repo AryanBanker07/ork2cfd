@@ -11,28 +11,28 @@ from pathlib import Path
 
 IN_FLUENT_PY = "workflow" in globals() and "meshing" in globals()
 BASE_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
-STEP_FILE = BASE_DIR / "{{ step_filename }}"
-MANIFEST_FILE = BASE_DIR / "{{ manifest_filename }}"
-MESH_FILE = BASE_DIR / "{{ stem }}.msh.h5"
-CASE_FILE = BASE_DIR / "{{ stem }}.cas.h5"
-DATA_FILE = BASE_DIR / "{{ stem }}.dat.h5"
+STEP_FILE = BASE_DIR / {{ step_filename | tojson }}
+MANIFEST_FILE = BASE_DIR / {{ manifest_filename | tojson }}
+MESH_FILE = BASE_DIR / {{ (stem ~ ".msh.h5") | tojson }}
+CASE_FILE = BASE_DIR / {{ (stem ~ ".cas.h5") | tojson }}
+DATA_FILE = BASE_DIR / {{ (stem ~ ".dat.h5") | tojson }}
 RESULTS_CSV = BASE_DIR / "aero_results.csv"
 ROCKETPY_CSV = BASE_DIR / "rocketpy_drag.csv"
 SUMMARY_JSON = BASE_DIR / "cfd_summary.json"
 
 # Rocket & Flight Configuration (pre-computed by ork2cfd)
-ROCKET_NAME = "{{ rocket.name }}"
-ROCKET_STEM = "{{ stem }}"
-ANSYS_VERSION = "{{ ansys_version }}"
+ROCKET_NAME = {{ rocket.name | tojson }}
+ROCKET_STEM = {{ stem | tojson }}
+ANSYS_VERSION = {{ ansys_version | tojson }}
 CORES = {{ flight.cores }}
 MACH = {{ flight.mach }}
 MACH_LIST = [{{ flight.mach }}]
 ALTITUDE_M = {{ flight.altitude_m }}
 AOA_DEG = {{ flight.aoa_deg }}
-REGIME = "{{ solver_rec.regime.value }}"
-SOLVER_TYPE = "{{ solver_rec.solver_type }}"
+REGIME = {{ solver_rec.regime.value | tojson }}
+SOLVER_TYPE = {{ solver_rec.solver_type | tojson }}
 COURANT_NUMBER = {{ "%.2f" | format(solver_rec.courant_number) }}
-DOMAIN_MODE = "{{ domain.mode.value }}"
+DOMAIN_MODE = {{ domain.mode.value | tojson }}
 ITERATIONS = {{ flight.iterations }}
 SYM_FACTOR = {{ symmetry_multiplier }}
 CD_STOP_CRITERION = 1e-4
@@ -1238,8 +1238,14 @@ def _discover_solver_zones(sroot, manifest: dict) -> list[str]:
 def _match_zones(all_zones: list[str], prefix: str) -> list[str]:
     """Match all boundary zone names belonging to a canonical ork2cfd Named Selection."""
     return sorted(
-        z for z in all_zones
-        if z == prefix or z.startswith(f"{prefix}:") or z.startswith(f"{prefix}-") or prefix in z
+        z
+        for z in all_zones
+        if (
+            z == prefix
+            or z.startswith(f"{prefix}:")
+            or z.startswith(f"{prefix}-")
+            or z.startswith(f"{prefix}.")
+        )
     )
 
 
@@ -1407,6 +1413,17 @@ def _export_contour_pngs(
         print(f"[ork2cfd] Contour export skipped: {exc}")
 
     return out_mach, out_pres, slice_created
+
+
+def _clear_cd_convergence(sroot) -> None:
+    """Remove any prior cd_total convergence condition so low-CFL warmup is not halted early."""
+    try:
+        conv_reps = sroot.solution.monitor.convergence_conditions.convergence_reports
+        existing = list(conv_reps.get_object_names() or [])
+        if "cd_total_conv" in existing:
+            conv_reps.delete(["cd_total_conv"])
+    except Exception:
+        pass
 
 
 def _configure_cd_convergence(sroot, max_iters: int) -> None:
@@ -1617,12 +1634,16 @@ def _configure_and_solve(
     pff_zones = (farfield_zones + inlet_zones) if farfield_bc == "pressure-far-field" else []
     if outlet_bc == "pressure-far-field":
         pff_zones.extend(outlet_zones)
+    vinlet_zones = (
+        sorted(set(inlet_zones + farfield_zones))
+        if farfield_bc != "pressure-far-field"
+        else []
+    )
 
     for zname in pff_zones:
         solver_session.tui.define.boundary_conditions.zone_type(zname, "pressure-far-field")
-    if farfield_bc != "pressure-far-field":
-        for zname in inlet_zones:
-            solver_session.tui.define.boundary_conditions.zone_type(zname, "velocity-inlet")
+    for zname in vinlet_zones:
+        solver_session.tui.define.boundary_conditions.zone_type(zname, "velocity-inlet")
     if outlet_bc == "pressure-outlet":
         for zname in outlet_zones:
             solver_session.tui.define.boundary_conditions.zone_type(zname, "pressure-outlet")
@@ -1691,12 +1712,11 @@ def _configure_and_solve(
 
         for zname in pff_zones:
             _set_farfield_bc(sroot, solver_session, zname, mach_val, cos_a, sin_a)
-        if farfield_bc != "pressure-far-field":
-            for zname in inlet_zones:
-                solver_session.tui.define.boundary_conditions.velocity_inlet(
-                    zname, "no", "no", "yes", "yes", "no", vel, "no", 0,
-                    "no", cos_a, "no", sin_a, "no", 0.0, "no", "no", "yes", "5", "10"
-                )
+        for zname in vinlet_zones:
+            solver_session.tui.define.boundary_conditions.velocity_inlet(
+                zname, "no", "no", "yes", "yes", "no", vel, "no", 0,
+                "no", cos_a, "no", sin_a, "no", 0.0, "no", "no", "yes", "5", "10"
+            )
 
         if idx == 0 or (mach_val < 1.0) != (mach_list[idx - 1] < 1.0):
             _initialize_flow(sroot, solver_session, pff_zones, mach_val, use_compressible)
@@ -1704,6 +1724,7 @@ def _configure_and_solve(
             sroot, solver_session, active_solver, mach_val, use_compressible
         )
         if warmup_iters > 0 and ITERATIONS > warmup_iters:
+            _clear_cd_convergence(sroot)
             solver_session.tui.solve.iterate(warmup_iters)
             _set_courant_number(sroot, solver_session, active_solver, COURANT_NUMBER)
             if "cd_total" in report_names:
@@ -1714,8 +1735,8 @@ def _configure_and_solve(
                 _configure_cd_convergence(sroot, ITERATIONS)
             solver_session.tui.solve.iterate(ITERATIONS)
 
-        mach_case = BASE_DIR / f"{{ stem }}_M{mach_val:.2f}.cas.h5"
-        mach_data = BASE_DIR / f"{{ stem }}_M{mach_val:.2f}.dat.h5"
+        mach_case = BASE_DIR / f"{ROCKET_STEM}_M{mach_val:.2f}.cas.h5"
+        mach_data = BASE_DIR / f"{ROCKET_STEM}_M{mach_val:.2f}.dat.h5"
         if mach_case.exists():
             mach_case.unlink()
         if mach_data.exists():
@@ -1859,6 +1880,9 @@ def _run_standalone_mesh_convergence(
 
 
 if IN_FLUENT_PY:
+    import sys
+
+    _run_failed = False
     try:
         _env_machs = os.environ.get("ORK2CFD_MACH_LIST", "").strip()
         _parsed_machs = [float(x) for x in _env_machs.split(",") if x.strip()] if _env_machs else None
@@ -1866,14 +1890,16 @@ if IN_FLUENT_PY:
         _parsed_scale = float(_env_scale) if _env_scale else 1.0
         run_cfd(show_gui=False, mach_list=_parsed_machs, mesh_scale=_parsed_scale)
     except Exception:
-        import sys
         import traceback
 
+        _run_failed = True
         traceback.print_exc()
         sys.stdout.flush()
         sys.stderr.flush()
         raise
     finally:
+        if _run_failed:
+            sys.exit(1)
         exit()
 elif __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run ork2cfd Fluent CFD workflow")

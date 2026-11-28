@@ -6,6 +6,7 @@ import contextlib
 import os
 import threading
 import time
+import tkinter as tk
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -1379,10 +1380,17 @@ class Ork2CfdApp(ctk.CTk):
         )
         worker.start()
 
+    def _safe_after(self, delay_ms: int, callback, *args) -> None:
+        try:
+            if self.winfo_exists():
+                self.after(delay_ms, callback, *args)
+        except (RuntimeError, tk.TclError):
+            pass
+
     def _run_worker(self, ork_path: Path, out_dir: Path, cfg: PipelineConfig) -> None:
         try:
             fluent_cb = (
-                (lambda line: self.after(0, self._on_fluent_line, line))
+                (lambda line: self._safe_after(0, self._on_fluent_line, line))
                 if cfg.deliverables.auto_run_cfd
                 else None
             )
@@ -1390,12 +1398,14 @@ class Ork2CfdApp(ctk.CTk):
                 ork_path=ork_path,
                 output_dir=out_dir,
                 config=cfg,
-                progress_callback=lambda msg, frac: self.after(0, self._on_progress, msg, frac),
+                progress_callback=lambda msg, frac: self._safe_after(
+                    0, self._on_progress, msg, frac
+                ),
                 fluent_line_callback=fluent_cb,
             )
-            self.after(0, self._on_complete, res)
+            self._safe_after(0, self._on_complete, res)
         except Exception as exc:
-            self.after(0, self._on_error, exc)
+            self._safe_after(0, self._on_error, exc)
 
     def _on_progress(self, msg: str, frac: float) -> None:
         snap = self._tracker.on_pipeline_progress(msg, frac)
@@ -1659,13 +1669,15 @@ class Ork2CfdApp(ctk.CTk):
                     f"{run_pt.wall_yplus_avg:.2f}" if run_pt.wall_yplus_avg is not None else "—"
                 )
                 scope_lbl = "Whole-Rocket" if self._selected_stage_key() == "all" else "Whole-Stage"
+                div_suffix = "  [DIVERGED]" if run_pt.diverged else ""
                 self.lbl_cd_headline.configure(
                     text=(
                         f"{scope_lbl} Cd = {run_pt.total_cd:.4f}  |  "
                         f"Drag = {run_pt.total_drag_n:.2f} N  |  "
-                        f"M = {run_pt.mach:.2f}  |  Cells = {cells_txt}  |  y+ = {yp_txt}"
+                        f"M = {run_pt.mach:.2f}  |  Cells = {cells_txt}  |  "
+                        f"y+ = {yp_txt}{div_suffix}"
                     ),
-                    text_color=cd_fg,
+                    text_color=("#f87171" if run_pt.diverged else cd_fg),
                 )
                 zones_txt = "  |  ".join(
                     f"{z.zone.removeprefix('rocket_')}: {z.cd:.4f} ({z.drag_force_n:.1f} N)"
@@ -1815,7 +1827,7 @@ class Ork2CfdApp(ctk.CTk):
         mesh_preset: MeshPreset,
     ) -> None:
         try:
-            line_cb = lambda line: self.after(0, self._on_fluent_line, line)  # noqa: E731
+            line_cb = lambda line: self._safe_after(0, self._on_fluent_line, line)  # noqa: E731
             if mesh_conv.enabled:
                 cfd_res = run_mesh_convergence_blocking(
                     output_dir=out_dir,
@@ -1832,9 +1844,9 @@ class Ork2CfdApp(ctk.CTk):
                     cores=cores,
                     line_callback=line_cb,
                 )
-            self.after(0, self._on_solve_complete, cfd_res)
+            self._safe_after(0, self._on_solve_complete, cfd_res)
         except Exception as exc:
-            self.after(0, self._on_solve_error, exc)
+            self._safe_after(0, self._on_solve_error, exc)
 
     def _on_solve_complete(self, cfd_res: CfdSolveResult) -> None:
         self._is_running = False
@@ -2039,10 +2051,10 @@ class Ork2CfdApp(ctk.CTk):
                 ork_path=ork_path,
                 output_dir=opt_dir,
                 config=opt_cfg,
-                progress_callback=lambda msg, frac: self.after(
+                progress_callback=lambda msg, frac: self._safe_after(
                     0, self._on_opt_progress, msg, frac
                 ),
-                eval_callback=lambda evals: self.after(
+                eval_callback=lambda evals: self._safe_after(
                     0,
                     self._on_opt_eval_update,
                     evals,
@@ -2053,12 +2065,12 @@ class Ork2CfdApp(ctk.CTk):
                 fluent_line_callback=(
                     None
                     if opt_cfg.dry_run
-                    else (lambda line: self.after(0, self._on_fluent_line, line))
+                    else (lambda line: self._safe_after(0, self._on_fluent_line, line))
                 ),
             )
-            self.after(0, self._on_opt_complete, res)
+            self._safe_after(0, self._on_opt_complete, res, opt_cfg.min_static_margin_cal)
         except Exception as exc:
-            self.after(0, self._on_opt_error, exc)
+            self._safe_after(0, self._on_opt_error, exc)
 
     def _on_opt_progress(self, msg: str, frac: float) -> None:
         snap = self._tracker.on_fin_opt_progress(msg, frac)
@@ -2111,7 +2123,9 @@ class Ork2CfdApp(ctk.CTk):
                 if best_parsed is not None and best_parsed.runs:
                     self._display_cfd_result(best_parsed)
 
-    def _on_opt_complete(self, res: FinOptimizationResult) -> None:
+    def _on_opt_complete(
+        self, res: FinOptimizationResult, min_sm_cal: float | None = None
+    ) -> None:
         self._is_running = False
         self._stop_activity_ticker()
         self._last_opt_result = res
@@ -2123,9 +2137,16 @@ class Ork2CfdApp(ctk.CTk):
         )
         self._display_cfd_result(self._last_cfd_result)
 
+        if min_sm_cal is None:
+            try:
+                resolved_min_sm = max(0.2, float(self.var_opt_min_sm.get().strip() or 2.0))
+            except ValueError:
+                resolved_min_sm = 2.0
+        else:
+            resolved_min_sm = float(min_sm_cal)
         self.opt_canvas.update_evaluations(
             list(res.evaluations),
-            min_sm_cal=max(1.0, float(self.var_opt_min_sm.get() or 2.0)),
+            min_sm_cal=resolved_min_sm,
             target_stage_name=res.target_stage_name,
             rocket_name=res.optimized_ork_path.stem.removesuffix("_optimized"),
         )

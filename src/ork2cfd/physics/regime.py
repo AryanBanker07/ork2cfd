@@ -39,7 +39,7 @@ def recommend_solver(rocket: RocketModel, flight: FlightCondition) -> SolverReco
             roughness_height_m=roughness_m,
             inlet_bc_type="velocity-inlet",
             outlet_bc_type="pressure-outlet",
-            farfield_bc_type="pressure-far-field",
+            farfield_bc_type="velocity-inlet",
             recommended_upstream_L=5.0,
             recommended_downstream_L=12.0,
             recommended_radial_L=8.0,

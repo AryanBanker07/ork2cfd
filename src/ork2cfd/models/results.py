@@ -141,6 +141,7 @@ class CfdMachPoint:
     mach_contour_png: Path | None = None
     pressure_contour_png: Path | None = None
     zones: tuple[CfdZoneResult, ...] = ()
+    diverged: bool = False
 
 
 @dataclass(frozen=True)

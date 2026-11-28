@@ -412,11 +412,6 @@ def test_hdf5_contour_renderer_and_mpi_flag(
     pkg_dir = tmp_path / "mpi_pkg"
     pkg_dir.mkdir()
     (pkg_dir / "run_fluent.py").write_text("# test", encoding="utf-8")
-    (pkg_dir / "aero_results.csv").write_text(
-        "rocket,mach,altitude_m,aoa_deg,zone,drag_force_n,cd\n"
-        "R,0.8,500,0,total,100,0.4\n",
-        encoding="utf-8",
-    )
     fexe = tmp_path / "fluent.exe"
     fexe.write_text("stub", encoding="utf-8")
     inst = AnsysInstallation("25.2", "v252", "25.2.170", tmp_path, None, fexe, None)
@@ -426,6 +421,11 @@ def test_hdf5_contour_renderer_and_mpi_flag(
         stdout = io.StringIO("ok\n")
 
         def wait(self) -> int:
+            (pkg_dir / "aero_results.csv").write_text(
+                "rocket,mach,altitude_m,aoa_deg,zone,drag_force_n,cd\n"
+                "R,0.8,500,0,total,100,0.4\n",
+                encoding="utf-8",
+            )
             return 0
 
     monkeypatch.setattr(
@@ -785,3 +785,169 @@ def test_fin_opt_divergence_filtering_and_verification_ram_cap(
     )
     assert len(seen_verify) == 8
     assert seen_verify[-1][0] == pytest.approx(0.669434)
+
+
+def test_duplicate_stage_names_cg_shift_resume_signature_and_plot_cleanup(
+    synthetic_ork_file: Path,
+    tmp_path: Path,
+) -> None:
+    import json
+    import xml.etree.ElementTree as ET
+
+    import matplotlib.pyplot as plt
+
+    from ork2cfd.optimize.plots import render_fluent_hdf5_contours
+    from ork2cfd.parser import parse_ork_file
+
+    # 1. Duplicate stage names ("Stage") with stage_selection="stage_2" & explicit CG shift
+    dup_xml = """<?xml version="1.0" encoding="utf-8"?>
+<openrocket version="1.9">
+  <rocket>
+    <name>DupStage</name>
+    <subcomponents>
+      <stage>
+        <name>Stage</name>
+        <subcomponents>
+          <nosecone>
+            <name>Nose</name>
+            <length>0.30</length>
+            <shape>ogive</shape>
+            <aftradius>0.05</aftradius>
+          </nosecone>
+          <bodytube>
+            <name>UpperBody</name>
+            <length>0.70</length>
+            <radius>0.05</radius>
+            <subcomponents>
+              <trapezoidfinset>
+                <name>UpperFins</name>
+                <fincount>4</fincount>
+                <rootchord>0.12</rootchord>
+                <tipchord>0.06</tipchord>
+                <sweeplength>0.04</sweeplength>
+                <height>0.07</height>
+                <thickness>0.003</thickness>
+                <crosssection>square</crosssection>
+                <position type="bottom">-0.02</position>
+              </trapezoidfinset>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+      <stage>
+        <name>Stage</name>
+        <subcomponents>
+          <bodytube>
+            <name>BoosterBody</name>
+            <length>0.90</length>
+            <radius>0.05</radius>
+            <subcomponents>
+              <trapezoidfinset>
+                <name>BoosterFins</name>
+                <fincount>4</fincount>
+                <rootchord>0.22</rootchord>
+                <tipchord>0.08</tipchord>
+                <sweeplength>0.06</sweeplength>
+                <height>0.11</height>
+                <thickness>0.003</thickness>
+                <crosssection>square</crosssection>
+                <position type="bottom">-0.02</position>
+              </trapezoidfinset>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+</openrocket>
+"""
+    dup_ork = tmp_path / "dup_stages.ork"
+    dup_ork.write_text(dup_xml, encoding="utf-8")
+    opt_dir = tmp_path / "dup_opt"
+    res = run_fin_optimization(
+        dup_ork,
+        opt_dir,
+        config=FinOptimizationConfig(
+            max_sims=4,
+            stage_selection="stage_2",
+            target_fin_stage="booster",
+            min_static_margin_cal=1.5,
+            cg_x_m=1.35,  # full-vehicle CG -> shifted by stage_1 length (1.00 m) to 0.35 m
+            dry_run=True,
+            export_best_cad=False,
+        ),
+    )
+    hist_data = json.loads(res.history_json_path.read_text(encoding="utf-8"))
+    assert hist_data["cg_source"] == "user_specified_shifted"
+    assert hist_data["cg_x_m"] == pytest.approx(0.35, abs=1e-4)
+
+    # Upper stage fins must remain untouched; booster fins must hold the optimized chord
+    out_root = ET.fromstring(res.optimized_ork_path.read_text(encoding="utf-8"))
+    stages_el = out_root.findall("./rocket/subcomponents/stage")
+    upper_rc = float(stages_el[0].findtext(".//trapezoidfinset/rootchord"))
+    booster_rc = float(stages_el[1].findtext(".//trapezoidfinset/rootchord"))
+    assert upper_rc == pytest.approx(0.12)
+    assert booster_rc == pytest.approx(res.best_eval.candidate.root_chord, abs=1e-5)
+
+    # 2. Config mismatch resets stale --resume history; resume=False ignores baseline conv
+    res_changed = run_fin_optimization(
+        dup_ork,
+        opt_dir,
+        config=FinOptimizationConfig(
+            max_sims=4,
+            stage_selection="stage_2",
+            target_fin_stage="booster",
+            mach=1.40,
+            min_static_margin_cal=1.5,
+            cg_x_m=1.35,
+            dry_run=True,
+            export_best_cad=False,
+            resume=True,
+        ),
+    )
+    assert len(res_changed.evaluations) == 4
+    assert res_changed.evaluations[0].cd_total != pytest.approx(res.evaluations[0].cd_total)
+
+    base_conv_dir = opt_dir / "sim_01_baseline"
+    base_conv_dir.mkdir(parents=True, exist_ok=True)
+    (base_conv_dir / "mesh_convergence.json").write_text(
+        json.dumps({"optimal_level": 1, "levels": [{"level": 1, "mesh_scale": 1.6}]}),
+        encoding="utf-8",
+    )
+    res_no_resume = run_fin_optimization(
+        dup_ork,
+        opt_dir,
+        config=FinOptimizationConfig(
+            max_sims=3,
+            stage_selection="stage_2",
+            target_fin_stage="booster",
+            mach=1.40,
+            min_static_margin_cal=1.5,
+            cg_x_m=1.35,
+            dry_run=True,
+            export_best_cad=False,
+            resume=False,
+        ),
+    )
+    assert res_no_resume.locked_mesh is None
+
+    # 3. render_fluent_hdf5_contours must not leak matplotlib figures on HDF5 read errors
+    rkt = parse_ork_file(synthetic_ork_file)
+    bad_h5 = tmp_path / "missing.cas.h5"
+    before_figs = set(plt.get_fignums())
+    assert (
+        render_fluent_hdf5_contours(
+            bad_h5,
+            bad_h5,
+            tmp_path / "out.png",
+            title="t",
+            rocket=rkt,
+            target_fin=rkt.all_fins[0],
+            mach_inf=0.8,
+            p_inf_pa=101325.0,
+            rho_inf=1.225,
+            v_inf=270.0,
+        )
+        is None
+    )
+    assert set(plt.get_fignums()) == before_figs

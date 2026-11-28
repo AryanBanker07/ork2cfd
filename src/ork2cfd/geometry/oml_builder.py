@@ -103,7 +103,9 @@ def build_rocket_oml(
 
     oml_shape = body_shape
     if all_attachments:
-        oml_shape = _fuse_shapes_robust(body_shape, all_attachments, warnings)
+        oml_shape = _fuse_shapes_robust(
+            body_shape, all_attachments, warnings, required_count=len(fin_solids)
+        )
         oml_shape = _strip_internal_edges(oml_shape)
 
     if cad_config.apply_fin_fillets and fin_solids:
@@ -236,6 +238,7 @@ def _fuse_shapes_robust(
     base: TopoDS_Shape,
     tools: list[TopoDS_Shape],
     warnings: list[str],
+    required_count: int = 0,
 ) -> TopoDS_Shape:
     """Boolean-fuse attachment solids onto body using batch fuse with sequential fallback."""
     try:
@@ -266,6 +269,10 @@ def _fuse_shapes_robust(
         fuser.SetFuzzyValue(2e-3)
         fuser.Build()
         if not fuser.IsDone():
+            if idx < required_count:
+                raise GeometryBuildError(
+                    f"Critical fin solid #{idx + 1} failed boolean fuse with rocket body."
+                )
             warnings.append(f"Attachment solid #{idx + 1} failed boolean fuse and was skipped.")
             continue
         current = fuser.Shape()

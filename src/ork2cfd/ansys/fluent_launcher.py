@@ -185,6 +185,7 @@ def parse_cfd_results(output_dir: Path) -> CfdSolveResult | None:
                         mach_contour_png=m_png,
                         pressure_contour_png=p_png,
                         zones=zones,
+                        diverged=bool(raw_run.get("diverged", False)),
                     )
                 )
             if runs:
@@ -361,6 +362,10 @@ def run_fluent_solve_blocking(
     if mesh_scale is not None:
         env["ORK2CFD_MESH_SCALE"] = f"{float(mesh_scale):.6f}"
 
+    for stale_name in ("cfd_summary.json", "aero_results.csv", "rocketpy_drag.csv"):
+        with contextlib.suppress(OSError):
+            (out_dir / stale_name).unlink()
+
     log_path = out_dir / "fluent_run.log"
     tail_lines: list[str] = []
     try:
@@ -434,11 +439,15 @@ def launch_fluent_visualization(
     dat_partner = resolved_case.with_name(
         resolved_case.name.removesuffix(".cas.h5") + ".dat.h5"
     )
+    try:
+        case_ref = resolved_case.resolve().relative_to(out_dir.resolve()).as_posix()
+    except ValueError:
+        case_ref = resolved_case.resolve().as_posix()
     jou_path = out_dir / "_open_viz.jou"
     cmd_line = (
-        f'/file/read-case-data "{resolved_case.name}"\n'
+        f'/file/read-case-data "{case_ref}"\n'
         if dat_partner.exists()
-        else f'/file/read-case "{resolved_case.name}"\n'
+        else f'/file/read-case "{case_ref}"\n'
     )
     jou_path.write_text(cmd_line, encoding="utf-8")
 

@@ -132,6 +132,7 @@ def render_fluent_hdf5_contours(
     except ImportError:
         return None
 
+    fig = None
     try:
         out_png.parent.mkdir(parents=True, exist_ok=True)
         with h5py.File(case_path, "r") as fc, h5py.File(data_path, "r") as fd:
@@ -359,10 +360,12 @@ def render_fluent_hdf5_contours(
 
         plt.tight_layout(rect=[0.0, 0.0, 1.0, 0.96])
         fig.savefig(out_png, dpi=160)
-        plt.close(fig)
         return out_png
     except Exception:
         return None
+    finally:
+        if fig is not None:
+            plt.close(fig)
 
 
 def render_optimization_cd_plot(

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.figure import Figure
@@ -132,7 +133,7 @@ def export_cad_viewer_html(
         ],
         "zones": zones_payload,
     }
-    scene_json = json.dumps(scene_payload).replace("</", "<\\/")
+    scene_json = Markup(json.dumps(scene_payload).replace("</", "<\\/"))
 
     n_pass = sum(1 for c in verification_report.checks if c.status == "PASS")
     html_text = template.render(

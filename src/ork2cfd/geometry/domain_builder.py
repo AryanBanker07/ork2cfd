@@ -819,6 +819,7 @@ def _classify_outer_or_symmetry_face(
                 DomainMode.SYMMETRY_HALF_SECTOR,
             }
             and abs(n.X()) < 0.05
+            and pln.Distance(gp_Pnt(0.0, 0.0, 0.0)) < 5.0
             and r_max_surf > 0.70 * r_far_mm
             and (xmax - xmin) > max(L_mm, 0.5 * r_far_mm)
         ):

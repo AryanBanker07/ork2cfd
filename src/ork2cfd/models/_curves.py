@@ -59,10 +59,11 @@ def _eval_nosecone_radius(
     if "ogive" in shape:
         # Standard tangent ogive; secant ogive if shape_parameter != 0 and != 1
         rho = (base_r * base_r + length * length) / (2.0 * base_r)
-        if (0.0 < param < 1.0 or param > 1.0) and abs(param) > 1e-6:
+        is_secant = ("secant" in shape) or (abs(param) > 1e-6 and abs(param - 1.0) > 1e-6)
+        if is_secant and abs(param) > 1e-6:
             # OpenRocket secant ogive / tangent parameter k uses rho_secant = rho / k
-            rho = rho / param
-        if "secant" in shape or (0.0 < param < 1.0):
+            rho = max(rho / param, 0.5 * math.hypot(length, base_r) + 1e-12)
+        if is_secant:
             alpha = math.atan2(base_r, length) - math.acos(
                 max(-1.0, min(1.0, math.hypot(length, base_r) / (2.0 * rho)))
             )
@@ -110,9 +111,7 @@ def _eval_transition_radius(
         return max(0.0, fore_r + (aft_r - fore_r) * t)
 
     if "ellipsoid" in shape:
-        if shape_clipped:
-            frac = math.sqrt(max(0.0, 1.0 - (1.0 - u) ** 2))
-            return max(0.0, r_min + (r_max - r_min) * frac)
+        # Half-elliptical transition curve scaled uniformly across [r_min, r_max]
         frac = math.sqrt(max(0.0, 1.0 - (1.0 - u) ** 2))
         return max(0.0, r_min + (r_max - r_min) * frac)
 
