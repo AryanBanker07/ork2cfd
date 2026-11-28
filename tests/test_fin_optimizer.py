@@ -49,7 +49,19 @@ def test_barrowman_cp_and_stability_margin_947(synthetic_ork_file: Path) -> None
     base_cand = candidate_from_fin(orig_fin)
     cfg = FinOptimizationConfig(min_static_margin_cal=2.0)
 
-    rep_ok = evaluate_constraints(rocket, orig_fin, comp, base_cand, cg_x, cg_src, cfg)
+    rep_default = evaluate_constraints(rocket, orig_fin, comp, base_cand, cg_x, cg_src, cfg)
+    assert rep_default.static_margin_cal >= 2.0
+    assert rep_default.v_flutter_m_s > 0.0
+    assert rep_default.flutter_fos is not None
+    if sample_947.exists():
+        # 947 baseline booster fin has FOS ~ 1.49 at M=0.80, G=15 GPa -> flagged under default FOS=2
+        assert not rep_default.feasible
+        assert any("flutter_speed" in v for v in rep_default.violations)
+
+    cfg_relaxed_flutter = FinOptimizationConfig(min_static_margin_cal=2.0, min_flutter_sf=1.0)
+    rep_ok = evaluate_constraints(
+        rocket, orig_fin, comp, base_cand, cg_x, cg_src, cfg_relaxed_flutter
+    )
     assert rep_ok.feasible
     assert rep_ok.static_margin_cal >= 2.0
 
@@ -230,6 +242,7 @@ def test_run_fin_optimization_947_booster_dry_run_and_resume(tmp_path: Path) -> 
         if ev.sim_index > 1:
             assert ev.stability.feasible
             assert ev.stability.static_margin_cal >= 2.0
+            assert ev.stability.flutter_fos is not None and ev.stability.flutter_fos >= 2.0 - 1e-6
 
     assert res.best_eval.cd_total < res.baseline_eval.cd_total
     assert res.optimized_ork_path.exists()
@@ -1105,3 +1118,119 @@ def test_user_selectable_and_locked_fin_parameters(
         ],
     )
     assert res_all_locked.exit_code != 0
+
+
+def test_fin_flutter_formula_fos_default_and_editable_params(
+    synthetic_ork_file: Path,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from ork2cfd.optimize.constraints import compute_fin_flutter_speed
+    from ork2cfd.physics.atmosphere import compute_atmosphere
+
+    # 1. Exact agreement with uploaded NACA TN 4197 equation & default FOS == 2.0
+    assert FinOptimizationConfig().min_flutter_sf == pytest.approx(2.0)
+
+    cand = FinCandidate(
+        cross_section=FinCrossSection.SQUARE,
+        root_chord=0.25,
+        tip_chord=0.10,
+        span=0.12,
+        sweep_angle_deg=45.0,
+        thickness=0.003,
+    )
+    alt = 500.0
+    g_pa = 15.0e9
+    atmo = compute_atmosphere(alt)
+    ar = (cand.span**2) / (0.5 * (cand.root_chord + cand.tip_chord) * cand.span)
+    lam = cand.tip_chord / cand.root_chord
+    tc = cand.thickness / cand.root_chord
+    expected_vf = atmo.speed_of_sound_m_s * math.sqrt(
+        g_pa / ((1.337 * (ar**3) * atmo.pressure_pa * (lam + 1.0)) / (2.0 * (ar + 2.0) * (tc**3)))
+    )
+    assert compute_fin_flutter_speed(cand, alt, g_pa) == pytest.approx(expected_vf, rel=1e-9)
+
+    # 2. Custom FOS=2.5 is enforced on every proposed candidate; report & CSV include flutter_fos
+    res_strict = run_fin_optimization(
+        synthetic_ork_file,
+        tmp_path / "strict_fos",
+        config=FinOptimizationConfig(
+            max_sims=5,
+            mach=0.80,
+            altitude_m=alt,
+            min_static_margin_cal=1.5,
+            min_flutter_sf=2.5,
+            fin_shear_modulus_pa=15.0e9,
+            dry_run=True,
+            export_best_cad=False,
+        ),
+    )
+    for ev in res_strict.evaluations:
+        assert ev.stability.flutter_fos is not None
+        if ev.sim_index > 1:
+            assert ev.stability.feasible
+            assert ev.stability.flutter_fos >= 2.5 - 1e-6
+
+    csv_header = res_strict.summary_csv_path.read_text(encoding="utf-8").splitlines()[0]
+    assert "flutter_fos" in csv_header
+    md_text = res_strict.report_md_path.read_text(encoding="utf-8")
+    assert "V_f >= 2.50" in md_text
+    assert "Flutter FOS ($V_f / V$)" in md_text
+
+    # 3. FOS=0 disables flutter constraint
+    rocket = parse_ork_file(synthetic_ork_file)
+    _ids, _st, comp, orig_fin = resolve_target_fin(rocket, "booster")
+    cg_x, cg_src = estimate_cg_from_ork(synthetic_ork_file, "all")
+    rep_disabled = evaluate_constraints(
+        rocket,
+        orig_fin,
+        comp,
+        candidate_from_fin(orig_fin),
+        cg_x,
+        cg_src,
+        FinOptimizationConfig(mach=4.0, min_static_margin_cal=1.0, min_flutter_sf=0.0),
+    )
+    assert not any("flutter_speed" in v for v in rep_disabled.violations)
+
+    # 4. CLI editable --min-flutter-fos and --shear-modulus-gpa + validation
+    runner = CliRunner()
+    cli_out = tmp_path / "cli_flutter"
+    res_cli = runner.invoke(
+        cli_main,
+        [
+            "optimize-fins",
+            str(synthetic_ork_file),
+            "-o",
+            str(cli_out),
+            "--max-sims",
+            "4",
+            "--min-sm",
+            "1.5",
+            "--min-flutter-fos",
+            "2.2",
+            "--shear-modulus-gpa",
+            "20.0",
+            "--dry-run",
+            "--no-cad",
+        ],
+    )
+    assert res_cli.exit_code == 0, res_cli.output
+    hist = json.loads((cli_out / "optimization_history.json").read_text(encoding="utf-8"))
+    assert hist["min_flutter_sf"] == pytest.approx(2.2)
+    assert hist["fin_shear_modulus_pa"] == pytest.approx(20.0e9)
+
+    assert (
+        runner.invoke(
+            cli_main,
+            ["optimize-fins", str(synthetic_ork_file), "--min-flutter-fos", "-1", "--dry-run"],
+        ).exit_code
+        != 0
+    )
+    assert (
+        runner.invoke(
+            cli_main,
+            ["optimize-fins", str(synthetic_ork_file), "--shear-modulus-gpa", "0", "--dry-run"],
+        ).exit_code
+        != 0
+    )

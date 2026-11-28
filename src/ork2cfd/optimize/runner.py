@@ -178,6 +178,8 @@ def _write_outputs(
         "altitude_m": config.altitude_m,
         "aoa_deg": config.aoa_deg,
         "min_static_margin_cal": config.min_static_margin_cal,
+        "min_flutter_sf": config.min_flutter_sf,
+        "fin_shear_modulus_pa": config.fin_shear_modulus_pa,
         "cg_x_m": round(cg_x_m, 5),
         "cg_source": cg_source,
         "active_params": active_params,
@@ -215,6 +217,7 @@ def _write_outputs(
             "contour_png",
             "cd_airframe",
             "diverged",
+            "flutter_fos",
         ])
         base_cd = baseline.cd_total if baseline and baseline.cd_total > 0 else None
         for ev in evals:
@@ -247,6 +250,7 @@ def _write_outputs(
                 ev.contour_png or "",
                 f"{cd_air_val:.6f}" if cd_air_val is not None else "",
                 ev.diverged,
+                f"{s.flutter_fos:.2f}" if s.flutter_fos is not None else "",
             ])
 
     if evals:
@@ -310,6 +314,19 @@ def _write_outputs(
             if "sweep_angle_deg" in active_params
             else "0.00 (locked)"
         )
+        flutter_note = (
+            f"V_f >= {config.min_flutter_sf:.2f} × V_flight "
+            f"(G = {config.fin_shear_modulus_pa / 1e9:.2f} GPa)"
+            if config.min_flutter_sf > 0.0
+            else f"disabled (FOS = 0, G = {config.fin_shear_modulus_pa / 1e9:.2f} GPa)"
+        )
+        bs_fos = f"{bs.flutter_fos:.2f}" if bs.flutter_fos is not None else "—"
+        os_fos = f"{os_.flutter_fos:.2f}" if os_.flutter_fos is not None else "—"
+        fos_delta = (
+            f"{os_.flutter_fos - bs.flutter_fos:+.2f}"
+            if (bs.flutter_fos is not None and os_.flutter_fos is not None)
+            else "—"
+        )
         lines = [
             f"# Fin Shape Optimization Report — {stem}",
             "",
@@ -325,6 +342,7 @@ def _write_outputs(
                 f"- **Stability Constraint:** `SM >= {config.min_static_margin_cal:.2f} cal` "
                 f"(`X_cg = {cg_x_m:.3f} m`, source: `{cg_source}`)"
             ),
+            f"- **Flutter Constraint:** `{flutter_note}`",
             (
                 f"- **Evaluations Completed:** `{len(evals)} / {config.max_sims}` "
                 f"(`dry_run={best.is_dry_run}`)"
@@ -366,6 +384,16 @@ def _write_outputs(
                 f"| Static Margin (cal) | `{bs.static_margin_cal:.2f}` "
                 f"| `{os_.static_margin_cal:.2f}` "
                 f"| `{os_.static_margin_cal-bs.static_margin_cal:+.2f}` |"
+            ),
+            (
+                f"| Flutter Speed $V_f$ (m/s) | `{bs.v_flutter_m_s:.1f}` "
+                f"| `{os_.v_flutter_m_s:.1f}` "
+                f"| `{os_.v_flutter_m_s - bs.v_flutter_m_s:+.1f}` |"
+            ),
+            (
+                f"| Flutter FOS ($V_f / V$) | `{bs_fos}` "
+                f"| `{os_fos}` "
+                f"| `{fos_delta}` |"
             ),
             (
                 f"| **{scope_lbl}** | **`{baseline.cd_total:.6f}`** "
@@ -695,6 +723,8 @@ def run_fin_optimization(
         "altitude_m": round(float(cfg.altitude_m), 3),
         "aoa_deg": round(float(cfg.aoa_deg), 4),
         "min_static_margin_cal": round(float(cfg.min_static_margin_cal), 4),
+        "min_flutter_sf": round(float(cfg.min_flutter_sf), 4),
+        "fin_shear_modulus_pa": round(float(cfg.fin_shear_modulus_pa), 1),
         "cg_x_m": round(float(cg_x_m), 5),
         "active_params": list(cfg.active_params),
         "screen_cross_sections": [cs.value for cs in cfg.screen_cross_sections],

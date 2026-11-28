@@ -183,11 +183,16 @@ def estimate_cg_from_ork(ork_path: Path, stage_selection: str = "all") -> tuple[
 
 
 def compute_fin_flutter_speed(
-    fin: FinSet,
+    fin: FinSet | FinCandidate,
     altitude_m: float,
     shear_modulus_pa: float = 15.0e9,
 ) -> float:
-    """Compute NACA TN 4197 / Martin fin torsional flutter boundary velocity (m/s)."""
+    """
+    Compute NACA TN 4197 / Martin fin torsional flutter boundary velocity (m/s).
+
+    Formula:
+        V_f = a * sqrt(G / ((1.337 * AR^3 * P * (lambda + 1)) / (2 * (AR + 2) * (t / c)^3)))
+    """
     atmo = compute_atmosphere(altitude_m)
     c_r = max(fin.root_chord, 1e-4)
     c_t = max(fin.tip_chord, 0.0)
@@ -246,21 +251,26 @@ def evaluate_constraints(
     x_cp_m, cna_total = compute_barrowman_cp(rocket)
     d_ref = max(rocket.max_diameter, 1e-6)
     static_margin_cal = (x_cp_m - cg_x_m) / d_ref
-    if static_margin_cal < config.min_static_margin_cal - 1e-6:
+    if static_margin_cal < config.min_static_margin_cal:
         violations.append(
             f"static_margin {static_margin_cal:.2f} cal < {config.min_static_margin_cal:.2f} cal"
         )
 
     v_flutter = compute_fin_flutter_speed(
-        target_fin,
+        candidate,
         altitude_m=config.altitude_m,
         shear_modulus_pa=config.fin_shear_modulus_pa,
     )
+    atmo = compute_atmosphere(config.altitude_m)
+    v_flight = max(config.mach * atmo.speed_of_sound_m_s, 1e-6)
+    flutter_fos = v_flutter / v_flight
     if config.min_flutter_sf > 0.0:
-        atmo = compute_atmosphere(config.altitude_m)
-        v_req = config.min_flutter_sf * config.mach * atmo.speed_of_sound_m_s
+        v_req = config.min_flutter_sf * v_flight
         if v_flutter < v_req:
-            violations.append(f"flutter_speed {v_flutter:.1f} < {v_req:.1f} m/s")
+            violations.append(
+                f"flutter_speed {v_flutter:.1f} < {v_req:.1f} m/s "
+                f"(FOS {flutter_fos:.2f} < {config.min_flutter_sf:.2f})"
+            )
 
     return StabilityReport(
         x_cp_m=x_cp_m,
@@ -271,4 +281,5 @@ def evaluate_constraints(
         v_flutter_m_s=v_flutter,
         feasible=(len(violations) == 0),
         violations=tuple(violations),
+        flutter_fos=flutter_fos,
     )

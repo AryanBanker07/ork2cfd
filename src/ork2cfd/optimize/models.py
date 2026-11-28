@@ -126,6 +126,7 @@ class StabilityReport:
     v_flutter_m_s: float
     feasible: bool
     violations: tuple[str, ...] = ()
+    flutter_fos: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialize report."""
@@ -136,6 +137,7 @@ class StabilityReport:
             "cna_total": round(self.cna_total, 4),
             "static_margin_cal": round(self.static_margin_cal, 4),
             "v_flutter_m_s": round(self.v_flutter_m_s, 2),
+            "flutter_fos": round(self.flutter_fos, 3) if self.flutter_fos is not None else None,
             "feasible": self.feasible,
             "violations": list(self.violations),
         }
@@ -143,6 +145,7 @@ class StabilityReport:
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> StabilityReport:
         """Deserialize StabilityReport."""
+        fos_raw = payload.get("flutter_fos")
         return cls(
             x_cp_m=float(payload["x_cp_m"]),
             x_cg_m=float(payload["x_cg_m"]),
@@ -152,6 +155,7 @@ class StabilityReport:
             v_flutter_m_s=float(payload["v_flutter_m_s"]),
             feasible=bool(payload["feasible"]),
             violations=tuple(str(v) for v in (payload.get("violations") or ())),
+            flutter_fos=float(fos_raw) if fos_raw is not None else None,
         )
 
 
@@ -293,7 +297,7 @@ class FinOptimizationConfig:
     min_static_margin_cal: float = 2.0
     cg_x_m: float | None = None
     fin_shear_modulus_pa: float = 15.0e9
-    min_flutter_sf: float = 0.0
+    min_flutter_sf: float = 2.0
     domain_mode: str = "auto"
     enclosure_shape: EnclosureShape = EnclosureShape.CYLINDER
     mesh_preset: MeshPreset = MeshPreset.COARSE

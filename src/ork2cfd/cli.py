@@ -617,6 +617,22 @@ def verify(
     help="Minimum Barrowman static stability margin (calibers).",
 )
 @click.option(
+    "--min-flutter-fos",
+    "--min-flutter-sf",
+    "min_flutter_fos",
+    type=float,
+    default=2.0,
+    show_default=True,
+    help="Minimum NACA TN 4197 fin flutter factor of safety V_f / V_flight (0 to disable).",
+)
+@click.option(
+    "--shear-modulus-gpa",
+    type=float,
+    default=15.0,
+    show_default=True,
+    help="Fin material shear modulus G in GPa for flutter velocity calculation.",
+)
+@click.option(
     "--cg-m",
     type=float,
     default=None,
@@ -718,6 +734,8 @@ def optimize_fins(
     altitude_m: float,
     aoa_deg: float,
     min_sm: float,
+    min_flutter_fos: float,
+    shear_modulus_gpa: float,
     cg_m: float | None,
     params: str,
     lock_params: str,
@@ -743,6 +761,8 @@ def optimize_fins(
     _require_finite("--alt", altitude_m)
     _require_finite("--aoa", aoa_deg)
     _require_positive("--min-sm", min_sm)
+    _require_positive("--min-flutter-fos", min_flutter_fos, minimum=0.0, inclusive=True)
+    _require_positive("--shear-modulus-gpa", shear_modulus_gpa)
     _require_positive("--yplus", target_yplus)
     _require_positive("--mesh-conv-tol", mesh_conv_tol)
     _require_finite("--blunt-mm", blunt_mm)
@@ -786,6 +806,8 @@ def optimize_fins(
         altitude_m=altitude_m,
         aoa_deg=aoa_deg,
         min_static_margin_cal=min_sm,
+        fin_shear_modulus_pa=shear_modulus_gpa * 1e9,
+        min_flutter_sf=min_flutter_fos,
         cg_x_m=cg_m,
         domain_mode=mode,
         enclosure_shape=EnclosureShape(shape),

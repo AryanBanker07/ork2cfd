@@ -467,6 +467,27 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "• Typical subsonic/transonic flight guideline: ≥ 1.5 to 2.0 calibers."
         ),
     ),
+    "opt_min_flutter_fos": HelpEntry(
+        title="Minimum Fin Flutter Factor of Safety (FOS)",
+        body=(
+            "Requires every proposed fin design to exceed V_f >= FOS × V_flight under the "
+            "NACA TN 4197 / Martin fin torsional flutter boundary equation:\n\n"
+            "V_f = a * sqrt(G / [1.337 * AR^3 * P * (λ + 1) / (2 * (AR + 2) * (t / c_r)^3)])\n\n"
+            "• Default FOS = 2.0 (recommended composite rocketry safety factor).\n"
+            "• Set to 0 to disable the flutter constraint check."
+        ),
+    ),
+    "opt_shear_modulus": HelpEntry(
+        title="Fin Material Shear Modulus G (GPa)",
+        body=(
+            "Effective torsional shear modulus G in GPa used in the NACA TN 4197 "
+            "fin flutter velocity calculation:\n\n"
+            "• Birch plywood: ~0.6–0.9 GPa\n"
+            "• G10 / FR4 fiberglass: ~4.0–5.0 GPa\n"
+            "• Woven carbon fiber / G10 composite: ~12–20 GPa (default 15.0 GPa)\n"
+            "• 6061 Aluminum alloy: ~26.0 GPa"
+        ),
+    ),
     "opt_verify_final": HelpEntry(
         title="Final High-Resolution Verification Run",
         body=(

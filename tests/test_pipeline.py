@@ -143,6 +143,8 @@ def test_help_texts_complete() -> None:
         "opt_target_stage",
         "opt_max_sims",
         "opt_min_sm",
+        "opt_min_flutter_fos",
+        "opt_shear_modulus",
         "opt_verify_final",
         "opt_dry_run",
         "opt_params",
@@ -167,7 +169,7 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 42
+        assert len(app._info_icons) == 44
         assert app.var_auto_cfd.get() is False
         assert app.var_mesh_conv.get() is False
         assert app.btn_view_cad is not None

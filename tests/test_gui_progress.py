@@ -348,7 +348,9 @@ def test_gui_live_progress_widgets_and_theme(
         app._display_cfd_result(div_cfd)
         assert "[DIVERGED]" in app.lbl_cd_headline.cget("text")
 
-        # User-selectable fin optimization parameter checkboxes
+        # User-selectable fin optimization parameter checkboxes & flutter defaults
+        assert app.var_opt_min_flutter_fos.get() == "2.0"
+        assert app.var_opt_shear_modulus_gpa.get() == "15.0"
         assert app._selected_opt_params() == (
             ("root_chord", "tip_chord", "span", "sweep_angle_deg"),
             (),

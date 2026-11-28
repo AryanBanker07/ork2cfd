@@ -168,6 +168,8 @@ class Ork2CfdApp(ctk.CTk):
         }
         self.var_opt_max_sims = ctk.StringVar(value="10")
         self.var_opt_min_sm = ctk.StringVar(value="2.0")
+        self.var_opt_min_flutter_fos = ctk.StringVar(value="2.0")
+        self.var_opt_shear_modulus_gpa = ctk.StringVar(value="15.0")
         self.var_opt_verify = ctk.BooleanVar(value=True)
         self.var_opt_dry_run = ctk.BooleanVar(value=False)
         self.var_opt_param_root = ctk.BooleanVar(value=True)
@@ -886,9 +888,27 @@ class Ork2CfdApp(ctk.CTk):
             help_key="opt_min_sm",
             icon_registry=self._info_icons,
         )
-        add_labeled_checkbox(
+        add_labeled_entry(
             card.body,
             1,
+            1,
+            "Min Flutter FOS",
+            self.var_opt_min_flutter_fos,
+            help_key="opt_min_flutter_fos",
+            icon_registry=self._info_icons,
+        )
+        add_labeled_entry(
+            card.body,
+            2,
+            0,
+            "Fin Shear Modulus G (GPa)",
+            self.var_opt_shear_modulus_gpa,
+            help_key="opt_shear_modulus",
+            icon_registry=self._info_icons,
+        )
+        add_labeled_checkbox(
+            card.body,
+            2,
             1,
             "Final High-Res Verify",
             self.var_opt_verify,
@@ -897,7 +917,7 @@ class Ork2CfdApp(ctk.CTk):
         )
         add_labeled_checkbox(
             card.body,
-            2,
+            3,
             0,
             "Fast Dry-Run (Analytic Proxy)",
             self.var_opt_dry_run,
@@ -906,7 +926,7 @@ class Ork2CfdApp(ctk.CTk):
         )
 
         param_hdr = ctk.CTkFrame(card.body, fg_color="transparent")
-        param_hdr.grid(row=3, column=0, columnspan=2, padx=4, pady=(6, 2), sticky="w")
+        param_hdr.grid(row=4, column=0, columnspan=2, padx=4, pady=(6, 2), sticky="w")
         ctk.CTkLabel(
             param_hdr,
             text="Parameters to Optimize",
@@ -918,7 +938,7 @@ class Ork2CfdApp(ctk.CTk):
         self._info_icons.append(param_icon)
 
         param_box = ctk.CTkFrame(card.body, fg_color="transparent")
-        param_box.grid(row=4, column=0, columnspan=2, padx=2, pady=(0, 4), sticky="ew")
+        param_box.grid(row=5, column=0, columnspan=2, padx=2, pady=(0, 4), sticky="ew")
         param_box.grid_columnconfigure((0, 1), weight=1)
         ctk.CTkCheckBox(
             param_box,
@@ -961,7 +981,7 @@ class Ork2CfdApp(ctk.CTk):
             text_color=("#475569", "#94a3b8"),
         )
         self.lbl_opt_params_summary.grid(
-            row=5, column=0, columnspan=2, padx=4, pady=(2, 6), sticky="ew"
+            row=6, column=0, columnspan=2, padx=4, pady=(2, 6), sticky="ew"
         )
         self._refresh_opt_param_summary()
 
@@ -974,7 +994,7 @@ class Ork2CfdApp(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self._on_optimize_fins,
         )
-        self.btn_optimize_fins_card.grid(row=6, column=0, columnspan=2, pady=(2, 0), sticky="ew")
+        self.btn_optimize_fins_card.grid(row=7, column=0, columnspan=2, pady=(2, 0), sticky="ew")
 
     def _selected_opt_params(self) -> tuple[tuple[str, ...], tuple[FinCrossSection, ...]]:
         mapping = (
@@ -2037,6 +2057,14 @@ class Ork2CfdApp(ctk.CTk):
             min_sm = max(0.2, float(self.var_opt_min_sm.get().strip()))
         except ValueError:
             min_sm = 2.0
+        try:
+            min_flutter_fos = max(0.0, float(self.var_opt_min_flutter_fos.get().strip()))
+        except ValueError:
+            min_flutter_fos = 2.0
+        try:
+            shear_modulus_gpa = max(0.05, float(self.var_opt_shear_modulus_gpa.get().strip()))
+        except ValueError:
+            shear_modulus_gpa = 15.0
 
         active = self._active_rocket()
         stem = sanitize_stem(active.name if active is not None else ork_path.stem)
@@ -2073,6 +2101,8 @@ class Ork2CfdApp(ctk.CTk):
             altitude_m=cfg.flight.altitude_m,
             aoa_deg=cfg.flight.aoa_deg,
             min_static_margin_cal=min_sm,
+            fin_shear_modulus_pa=shear_modulus_gpa * 1e9,
+            min_flutter_sf=min_flutter_fos,
             domain_mode="auto",
             enclosure_shape=EnclosureShape.CYLINDER,
             mesh_preset=cfg.flight.mesh_preset,
@@ -2123,7 +2153,10 @@ class Ork2CfdApp(ctk.CTk):
         self.viz_tabs.set("Fin Optimization Plots")
         self.opt_canvas.render_empty()
         self.lbl_opt_headline.configure(
-            text=f"Running GP-EI fin optimization ({max_sims} sims, SM >= {min_sm:.2f} cal)...",
+            text=(
+                f"Running GP-EI fin optimization ({max_sims} sims, SM >= {min_sm:.2f} cal, "
+                f"FOS >= {min_flutter_fos:.2f})..."
+            ),
             text_color=("#38bdf8" if self.var_dark.get() else "#0284c7"),
         )
         self._apply_progress_snapshot(
@@ -2136,7 +2169,8 @@ class Ork2CfdApp(ctk.CTk):
         param_desc = ", ".join(list(active_params) + (["cross_section"] if screen_cs else []))
         self._append_log(
             f"[INFO] Starting fin optimization ({max_sims} sims, target={target_stage_key}, "
-            f"params=[{param_desc}], SM>={min_sm:.2f} cal, dry_run={dry_run}) in {opt_dir}"
+            f"params=[{param_desc}], SM>={min_sm:.2f} cal, FOS>={min_flutter_fos:.2f}, "
+            f"G={shear_modulus_gpa:.1f} GPa, dry_run={dry_run}) in {opt_dir}"
         )
 
         worker = threading.Thread(
