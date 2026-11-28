@@ -40,6 +40,7 @@ from .models.cfd import (
 )
 from .models.rocket import FinCrossSection
 from .optimize import FinOptimizationConfig, run_fin_optimization
+from .optimize.models import ACTIVE_CONTINUOUS_PARAMS
 from .parser.ork_parser import parse_ork_file
 from .physics.boundary_layer import compute_boundary_layer
 from .physics.regime import recommend_solver
@@ -623,9 +624,18 @@ def verify(
 )
 @click.option(
     "--params",
-    default="root_chord,tip_chord,span,sweep_angle_deg",
+    default=",".join(ACTIVE_CONTINUOUS_PARAMS),
     show_default=True,
-    help="Comma-separated OpenRocket fin parameters to optimize.",
+    help=(
+        "Comma-separated OpenRocket fin parameters to optimize "
+        "(can be empty if --cross-sections is set)."
+    ),
+)
+@click.option(
+    "--lock-params",
+    default="",
+    show_default=True,
+    help="Comma-separated fin parameters to keep locked/fixed (excluded from --params).",
 )
 @click.option(
     "--cross-sections",
@@ -710,6 +720,7 @@ def optimize_fins(
     min_sm: float,
     cg_m: float | None,
     params: str,
+    lock_params: str,
     cross_sections: str,
     mode: str,
     shape: str,
@@ -742,10 +753,28 @@ def optimize_fins(
 
     rocket = parse_ork_file(ork_file).select_stages(stage)
     target_dir = out_dir or (ork_file.parent / f"{sanitize_stem(rocket.name)}_fin_opt")
-    active_params = tuple(p.strip() for p in params.split(",") if p.strip())
+    raw_active = [p.strip() for p in params.split(",") if p.strip()]
+    raw_locked = [p.strip() for p in lock_params.split(",") if p.strip()]
+    for opt_name, tokens in (("--params", raw_active), ("--lock-params", raw_locked)):
+        invalid = [tok for tok in tokens if tok not in ACTIVE_CONTINUOUS_PARAMS]
+        if invalid:
+            raise click.BadParameter(
+                f"Unsupported fin parameter(s): {', '.join(invalid)}. "
+                f"Allowed: {', '.join(ACTIVE_CONTINUOUS_PARAMS)}.",
+                param_hint=opt_name,
+            )
+    locked_set = set(raw_locked)
+    active_params = tuple(dict.fromkeys(p for p in raw_active if p not in locked_set))
     cs_list = tuple(
-        FinCrossSection.from_str(c.strip()) for c in cross_sections.split(",") if c.strip()
+        dict.fromkeys(
+            FinCrossSection.from_str(c.strip()) for c in cross_sections.split(",") if c.strip()
+        )
     )
+    if not active_params and not cs_list:
+        raise click.BadParameter(
+            "At least one parameter must remain active in --params or --cross-sections.",
+            param_hint="--params / --lock-params",
+        )
 
     cfg = FinOptimizationConfig(
         max_sims=max_sims,

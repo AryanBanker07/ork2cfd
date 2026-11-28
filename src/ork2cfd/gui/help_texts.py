@@ -486,6 +486,23 @@ HELP_TEXTS: dict[str, HelpEntry] = {
             "OpenRocket .ork parameter export before launching multi-hour Fluent runs."
         ),
     ),
+    "opt_params": HelpEntry(
+        title="Parameters to Optimize vs Lock",
+        body=(
+            "Choose which fin shape parameters Bayesian GP-EI optimization may vary and "
+            "which stay fixed at their baseline .ork dimensions:\n\n"
+            "• Continuous Planform Variables: Root Chord, Tip Chord, Span (Height), and "
+            "LE Sweep Angle — unchecking any box locks that dimension strictly to the "
+            "baseline .ork value across all simulations.\n"
+            "• Cross-Section: When checked, screens Airfoil, Double-Wedge, and Rounded "
+            "profiles against baseline before optimizing geometry; when unchecked, keeps "
+            "the .ork cross-section fixed.\n"
+            "• Fin Thickness always remains locked for structural consistency.\n\n"
+            "Tip: Optimizing fewer active variables converges tighter within small "
+            "simulation budgets (e.g., locking Root Chord or Span when bay length or "
+            "rail clearance is fixed)."
+        ),
+    ),
     "sec_next_steps": HelpEntry(
         title="Next Steps — Viewing & Verifying Results in ANSYS",
         body=(

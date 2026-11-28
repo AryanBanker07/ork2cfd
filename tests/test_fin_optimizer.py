@@ -951,3 +951,157 @@ def test_duplicate_stage_names_cg_shift_resume_signature_and_plot_cleanup(
         is None
     )
     assert set(plt.get_fignums()) == before_figs
+
+
+def test_user_selectable_and_locked_fin_parameters(
+    synthetic_ork_file: Path,
+    tmp_path: Path,
+) -> None:
+    import json
+    import xml.etree.ElementTree as ET
+
+    from click.testing import CliRunner
+
+    from ork2cfd.cli import main as cli_main
+    from ork2cfd.exceptions import Ork2CfdError
+    from ork2cfd.models import FinCrossSection
+    from ork2cfd.parser import parse_ork_file
+
+    base_fin = parse_ork_file(synthetic_ork_file).all_fins[0]
+    base_sweep_deg = math.degrees(math.atan2(base_fin.sweep_length, max(base_fin.span, 1e-4)))
+
+    # 1. Subset optimization (span & sweep active; root_chord, tip_chord, cross_section locked)
+    sub_dir = tmp_path / "subset_opt"
+    res_sub = run_fin_optimization(
+        synthetic_ork_file,
+        sub_dir,
+        config=FinOptimizationConfig(
+            max_sims=6,
+            active_params=("span", "sweep_angle_deg"),
+            min_static_margin_cal=1.5,
+            dry_run=True,
+            export_best_cad=False,
+        ),
+    )
+    assert len(res_sub.evaluations) == 6
+    for ev in res_sub.evaluations:
+        assert ev.candidate.root_chord == pytest.approx(base_fin.root_chord, abs=1e-6)
+        assert ev.candidate.tip_chord == pytest.approx(base_fin.tip_chord, abs=1e-6)
+        assert ev.candidate.cross_section == base_fin.cross_section
+        assert ev.candidate.thickness == pytest.approx(base_fin.thickness, abs=1e-9)
+
+    md_text = res_sub.report_md_path.read_text(encoding="utf-8")
+    assert "**Optimized Parameters:** `span, sweep_angle_deg`" in md_text
+    assert "**Locked Parameters:** `root_chord, tip_chord, cross_section, thickness`" in md_text
+    hist_sub = json.loads(res_sub.history_json_path.read_text(encoding="utf-8"))
+    assert hist_sub["active_params"] == ["span", "sweep_angle_deg"]
+    assert hist_sub["locked_params"] == ["root_chord", "tip_chord"]
+
+    out_root = ET.fromstring(res_sub.optimized_ork_path.read_text(encoding="utf-8"))
+    assert float(out_root.findtext(".//trapezoidfinset/rootchord")) == pytest.approx(
+        base_fin.root_chord, abs=1e-5
+    )
+    assert float(out_root.findtext(".//trapezoidfinset/tipchord")) == pytest.approx(
+        base_fin.tip_chord, abs=1e-5
+    )
+
+    # 2. Single-parameter (1D) optimization: only sweep_angle_deg active
+    res_1d = run_fin_optimization(
+        synthetic_ork_file,
+        tmp_path / "one_d_opt",
+        config=FinOptimizationConfig(
+            max_sims=5,
+            active_params=("sweep_angle_deg",),
+            min_static_margin_cal=1.5,
+            dry_run=True,
+            export_best_cad=False,
+        ),
+    )
+    assert len(res_1d.evaluations) == 5
+    for ev in res_1d.evaluations:
+        assert ev.candidate.root_chord == pytest.approx(base_fin.root_chord, abs=1e-6)
+        assert ev.candidate.tip_chord == pytest.approx(base_fin.tip_chord, abs=1e-6)
+        assert ev.candidate.span == pytest.approx(base_fin.span, abs=1e-6)
+
+    # 3. Cross-section-only optimization (empty active_params + screen_cross_sections)
+    res_cs = run_fin_optimization(
+        synthetic_ork_file,
+        tmp_path / "cs_only_opt",
+        config=FinOptimizationConfig(
+            max_sims=4,
+            active_params=(),
+            screen_cross_sections=(FinCrossSection.AIRFOIL, FinCrossSection.DOUBLE_WEDGE),
+            min_static_margin_cal=1.5,
+            dry_run=True,
+            export_best_cad=False,
+        ),
+    )
+    assert len(res_cs.evaluations) == 3
+    for ev in res_cs.evaluations:
+        assert ev.candidate.root_chord == pytest.approx(base_fin.root_chord, abs=1e-6)
+        assert ev.candidate.tip_chord == pytest.approx(base_fin.tip_chord, abs=1e-6)
+        assert ev.candidate.span == pytest.approx(base_fin.span, abs=1e-6)
+        assert ev.candidate.sweep_angle_deg == pytest.approx(base_sweep_deg, abs=1e-4)
+
+    # 4. Empty active_params + empty screen_cross_sections must raise Ork2CfdError
+    with pytest.raises(Ork2CfdError, match="Select at least one fin parameter"):
+        run_fin_optimization(
+            synthetic_ork_file,
+            tmp_path / "empty_opt",
+            config=FinOptimizationConfig(
+                max_sims=4,
+                active_params=(),
+                screen_cross_sections=(),
+                dry_run=True,
+                export_best_cad=False,
+            ),
+        )
+
+    # 5. CLI --lock-params and validation
+    cli_dir = tmp_path / "cli_lock_opt"
+    runner = CliRunner()
+    res_cli = runner.invoke(
+        cli_main,
+        [
+            "optimize-fins",
+            str(synthetic_ork_file),
+            "-o",
+            str(cli_dir),
+            "--max-sims",
+            "4",
+            "--min-sm",
+            "1.5",
+            "--lock-params",
+            "root_chord,tip_chord",
+            "--dry-run",
+            "--no-cad",
+        ],
+    )
+    assert res_cli.exit_code == 0, res_cli.output
+    cli_hist = json.loads((cli_dir / "optimization_history.json").read_text(encoding="utf-8"))
+    assert cli_hist["active_params"] == ["span", "sweep_angle_deg"]
+    assert cli_hist["locked_params"] == ["root_chord", "tip_chord"]
+
+    res_bad = runner.invoke(
+        cli_main,
+        [
+            "optimize-fins",
+            str(synthetic_ork_file),
+            "--lock-params",
+            "bogus_param",
+            "--dry-run",
+        ],
+    )
+    assert res_bad.exit_code != 0
+
+    res_all_locked = runner.invoke(
+        cli_main,
+        [
+            "optimize-fins",
+            str(synthetic_ork_file),
+            "--lock-params",
+            "root_chord,tip_chord,span,sweep_angle_deg",
+            "--dry-run",
+        ],
+    )
+    assert res_all_locked.exit_code != 0

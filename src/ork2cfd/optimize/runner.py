@@ -167,6 +167,10 @@ def _write_outputs(
         else None
     )
 
+    active_params = list(dict.fromkeys(config.active_params))
+    locked_params = [p for p in ACTIVE_CONTINUOUS_PARAMS if p not in active_params]
+    screened_cs = [cs.value for cs in config.screen_cross_sections]
+
     history_payload = {
         "stem": stem,
         "target_stage_name": target_stage_name,
@@ -176,7 +180,9 @@ def _write_outputs(
         "min_static_margin_cal": config.min_static_margin_cal,
         "cg_x_m": round(cg_x_m, 5),
         "cg_source": cg_source,
-        "active_params": list(config.active_params),
+        "active_params": active_params,
+        "locked_params": locked_params,
+        "screen_cross_sections": screened_cs,
         "config_signature": config_signature,
         "bounds": bounds.to_dict(),
         "locked_mesh": locked_mesh.to_dict() if locked_mesh is not None else None,
@@ -279,10 +285,37 @@ def _write_outputs(
                 f"| Fins $C_D$ | `{baseline.cd_fins:.6f}` "
                 f"| `{best.cd_fins:.6f}` | `{best.cd_fins - baseline.cd_fins:+.6f}` |"
             )
+        opt_labels = list(active_params) + (["cross_section"] if screened_cs else [])
+        locked_labels = list(locked_params) + ([] if screened_cs else ["cross_section"]) + [
+            "thickness"
+        ]
+        cs_change = "—" if screened_cs else "0 (locked)"
+        root_change = (
+            f"{(oc.root_chord - bc.root_chord) * 1000:+.2f}"
+            if "root_chord" in active_params
+            else "0.00 (locked)"
+        )
+        tip_change = (
+            f"{(oc.tip_chord - bc.tip_chord) * 1000:+.2f}"
+            if "tip_chord" in active_params
+            else "0.00 (locked)"
+        )
+        span_change = (
+            f"{(oc.span - bc.span) * 1000:+.2f}"
+            if "span" in active_params
+            else "0.00 (locked)"
+        )
+        sweep_change = (
+            f"{oc.sweep_angle_deg - bc.sweep_angle_deg:+.2f}"
+            if "sweep_angle_deg" in active_params
+            else "0.00 (locked)"
+        )
         lines = [
             f"# Fin Shape Optimization Report — {stem}",
             "",
             f"- **Target Stage Optimized:** `{target_stage_name}` (all other stages kept fixed)",
+            f"- **Optimized Parameters:** `{', '.join(opt_labels) if opt_labels else 'none'}`",
+            f"- **Locked Parameters:** `{', '.join(locked_labels)}`",
             f"- **Fixed Fin Thickness:** `{oc.thickness * 1000:.2f} mm`",
             (
                 f"- **Flight Point:** Mach `{config.mach:.2f}` @ "
@@ -303,23 +336,23 @@ def _write_outputs(
             "| :--- | ---: | ---: | ---: |",
             (
                 f"| Cross Section | `{bc.cross_section.value}` "
-                f"| `{oc.cross_section.value}` | — |"
+                f"| `{oc.cross_section.value}` | {cs_change} |"
             ),
             (
                 f"| Root Chord (mm) | `{bc.root_chord*1000:.2f}` "
-                f"| `{oc.root_chord*1000:.2f}` | `{(oc.root_chord-bc.root_chord)*1000:+.2f}` |"
+                f"| `{oc.root_chord*1000:.2f}` | `{root_change}` |"
             ),
             (
                 f"| Tip Chord (mm) | `{bc.tip_chord*1000:.2f}` "
-                f"| `{oc.tip_chord*1000:.2f}` | `{(oc.tip_chord-bc.tip_chord)*1000:+.2f}` |"
+                f"| `{oc.tip_chord*1000:.2f}` | `{tip_change}` |"
             ),
             (
                 f"| Span / Height (mm) | `{bc.span*1000:.2f}` "
-                f"| `{oc.span*1000:.2f}` | `{(oc.span-bc.span)*1000:+.2f}` |"
+                f"| `{oc.span*1000:.2f}` | `{span_change}` |"
             ),
             (
                 f"| LE Sweep Angle (deg) | `{bc.sweep_angle_deg:.2f}` "
-                f"| `{oc.sweep_angle_deg:.2f}` | `{oc.sweep_angle_deg-bc.sweep_angle_deg:+.2f}` |"
+                f"| `{oc.sweep_angle_deg:.2f}` | `{sweep_change}` |"
             ),
             (
                 f"| Thickness (mm) | `{bc.thickness*1000:.2f}` "
@@ -607,11 +640,19 @@ def run_fin_optimization(
     cfg = config or FinOptimizationConfig()
     if cfg.max_sims < 3:
         raise Ork2CfdError("`max_sims` must be at least 3 for baseline + screen + improvement.")
-    for pname in cfg.active_params:
+    dedup_params = tuple(dict.fromkeys(cfg.active_params))
+    for pname in dedup_params:
         if pname not in ACTIVE_CONTINUOUS_PARAMS:
             raise Ork2CfdError(
                 f"Unsupported fin parameter '{pname}'. Allowed: {ACTIVE_CONTINUOUS_PARAMS}."
             )
+    if not dedup_params and not cfg.screen_cross_sections:
+        raise Ork2CfdError(
+            "Select at least one fin parameter to optimize "
+            "(root_chord, tip_chord, span, sweep_angle_deg, or cross_section)."
+        )
+    if dedup_params != cfg.active_params:
+        cfg = dataclasses.replace(cfg, active_params=dedup_params)
 
     src_ork = Path(ork_path)
     out_dir = Path(output_dir)
@@ -656,6 +697,7 @@ def run_fin_optimization(
         "min_static_margin_cal": round(float(cfg.min_static_margin_cal), 4),
         "cg_x_m": round(float(cg_x_m), 5),
         "active_params": list(cfg.active_params),
+        "screen_cross_sections": [cs.value for cs in cfg.screen_cross_sections],
         "dry_run": bool(cfg.dry_run),
     }
 
@@ -882,7 +924,7 @@ def run_fin_optimization(
     has_verified = any(e.phase == "verification" for e in evals)
     already_doe = sum(1 for e in evals if e.phase == "doe_lhs")
     total_optim_slots = cfg.max_sims - reserve_verify
-    if len(evals) < total_optim_slots:
+    if cfg.active_params and len(evals) < total_optim_slots:
         remaining_after_screen = total_optim_slots - len(evals) + already_doe
         target_doe = min(
             max(len(cfg.active_params), 3),
@@ -910,7 +952,7 @@ def run_fin_optimization(
                 _run_one("doe_lhs", cand)
 
     # Phase 3: Sequential Bayesian Optimization (GP + Expected Improvement)
-    while len(evals) < total_optim_slots:
+    while cfg.active_params and len(evals) < total_optim_slots:
         train_evals = [
             e
             for e in evals

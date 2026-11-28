@@ -145,6 +145,7 @@ def test_help_texts_complete() -> None:
         "opt_min_sm",
         "opt_verify_final",
         "opt_dry_run",
+        "opt_params",
     }
     assert expected_keys.issubset(HELP_TEXTS.keys())
     for key in expected_keys:
@@ -166,7 +167,7 @@ def test_gui_app_lifecycle_smoke(synthetic_ork_file: Path, tmp_path: Path) -> No
     try:
         assert app._rocket is not None
         assert app._rocket.name == "TestRocket"
-        assert len(app._info_icons) == 41
+        assert len(app._info_icons) == 42
         assert app.var_auto_cfd.get() is False
         assert app.var_mesh_conv.get() is False
         assert app.btn_view_cad is not None

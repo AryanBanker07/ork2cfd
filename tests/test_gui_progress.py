@@ -347,6 +347,33 @@ def test_gui_live_progress_widgets_and_theme(
         )
         app._display_cfd_result(div_cfd)
         assert "[DIVERGED]" in app.lbl_cd_headline.cget("text")
+
+        # User-selectable fin optimization parameter checkboxes
+        assert app._selected_opt_params() == (
+            ("root_chord", "tip_chord", "span", "sweep_angle_deg"),
+            (),
+        )
+        app.var_opt_param_root.set(False)
+        app.var_opt_param_tip.set(False)
+        app.var_opt_param_cross_section.set(True)
+        app._refresh_opt_param_summary()
+        active_p, screen_cs = app._selected_opt_params()
+        assert active_p == ("span", "sweep_angle_deg")
+        assert len(screen_cs) == 3
+        summary_txt = app.lbl_opt_params_summary.cget("text")
+        assert "Optimizing: Span, Sweep, Cross-Section" in summary_txt
+        assert "Locked: Root, Tip, Thickness" in summary_txt
+
+        # Unchecking every parameter blocks launch with a helpful error in log
+        app.var_opt_param_span.set(False)
+        app.var_opt_param_sweep.set(False)
+        app.var_opt_param_cross_section.set(False)
+        app._refresh_opt_param_summary()
+        assert "Select at least one" in app.lbl_opt_params_summary.cget("text")
+        app.var_opt_dry_run.set(True)
+        app._on_optimize_fins()
+        assert not app._is_running
+        assert "Select at least one fin parameter" in app.log_box.get("1.0", "end")
     finally:
         app.destroy()
 

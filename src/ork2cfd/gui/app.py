@@ -41,7 +41,7 @@ from ..models.cfd import (
     PipelineConfig,
 )
 from ..models.results import CfdMachPoint, CfdSolveResult, PackageResult
-from ..models.rocket import RocketModel
+from ..models.rocket import FinCrossSection, RocketModel
 from ..optimize import (
     FinOptimizationConfig,
     FinOptimizationResult,
@@ -170,6 +170,11 @@ class Ork2CfdApp(ctk.CTk):
         self.var_opt_min_sm = ctk.StringVar(value="2.0")
         self.var_opt_verify = ctk.BooleanVar(value=True)
         self.var_opt_dry_run = ctk.BooleanVar(value=False)
+        self.var_opt_param_root = ctk.BooleanVar(value=True)
+        self.var_opt_param_tip = ctk.BooleanVar(value=True)
+        self.var_opt_param_span = ctk.BooleanVar(value=True)
+        self.var_opt_param_sweep = ctk.BooleanVar(value=True)
+        self.var_opt_param_cross_section = ctk.BooleanVar(value=False)
 
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=0, minsize=475)
@@ -900,18 +905,65 @@ class Ork2CfdApp(ctk.CTk):
             icon_registry=self._info_icons,
         )
 
+        param_hdr = ctk.CTkFrame(card.body, fg_color="transparent")
+        param_hdr.grid(row=3, column=0, columnspan=2, padx=4, pady=(6, 2), sticky="w")
         ctk.CTkLabel(
+            param_hdr,
+            text="Parameters to Optimize",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            anchor="w",
+        ).pack(side="left")
+        param_icon = InfoIcon(param_hdr, help_key="opt_params")
+        param_icon.pack(side="left", padx=(5, 0))
+        self._info_icons.append(param_icon)
+
+        param_box = ctk.CTkFrame(card.body, fg_color="transparent")
+        param_box.grid(row=4, column=0, columnspan=2, padx=2, pady=(0, 4), sticky="ew")
+        param_box.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkCheckBox(
+            param_box,
+            text="Root Chord",
+            variable=self.var_opt_param_root,
+            command=self._refresh_opt_param_summary,
+        ).grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        ctk.CTkCheckBox(
+            param_box,
+            text="Tip Chord",
+            variable=self.var_opt_param_tip,
+            command=self._refresh_opt_param_summary,
+        ).grid(row=0, column=1, padx=4, pady=2, sticky="w")
+        ctk.CTkCheckBox(
+            param_box,
+            text="Span (Height)",
+            variable=self.var_opt_param_span,
+            command=self._refresh_opt_param_summary,
+        ).grid(row=1, column=0, padx=4, pady=2, sticky="w")
+        ctk.CTkCheckBox(
+            param_box,
+            text="Sweep Angle",
+            variable=self.var_opt_param_sweep,
+            command=self._refresh_opt_param_summary,
+        ).grid(row=1, column=1, padx=4, pady=2, sticky="w")
+        ctk.CTkCheckBox(
+            param_box,
+            text="Cross-Section (Airfoil / Double-Wedge / Rounded)",
+            variable=self.var_opt_param_cross_section,
+            command=self._refresh_opt_param_summary,
+        ).grid(row=2, column=0, columnspan=2, padx=4, pady=2, sticky="w")
+
+        self.lbl_opt_params_summary = ctk.CTkLabel(
             card.body,
-            text=(
-                "Optimizes root/tip chord, span & sweep while keeping the .ork "
-                "cross-section and thickness locked."
-            ),
+            text="",
             justify="left",
             anchor="w",
             wraplength=410,
             font=ctk.CTkFont(size=11),
             text_color=("#475569", "#94a3b8"),
-        ).grid(row=3, column=0, columnspan=2, padx=4, pady=(2, 6), sticky="ew")
+        )
+        self.lbl_opt_params_summary.grid(
+            row=5, column=0, columnspan=2, padx=4, pady=(2, 6), sticky="ew"
+        )
+        self._refresh_opt_param_summary()
 
         self.btn_optimize_fins_card = ctk.CTkButton(
             card.body,
@@ -922,7 +974,53 @@ class Ork2CfdApp(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self._on_optimize_fins,
         )
-        self.btn_optimize_fins_card.grid(row=4, column=0, columnspan=2, pady=(2, 0), sticky="ew")
+        self.btn_optimize_fins_card.grid(row=6, column=0, columnspan=2, pady=(2, 0), sticky="ew")
+
+    def _selected_opt_params(self) -> tuple[tuple[str, ...], tuple[FinCrossSection, ...]]:
+        mapping = (
+            ("root_chord", self.var_opt_param_root),
+            ("tip_chord", self.var_opt_param_tip),
+            ("span", self.var_opt_param_span),
+            ("sweep_angle_deg", self.var_opt_param_sweep),
+        )
+        active_params = tuple(name for name, var in mapping if var.get())
+        screen_cs: tuple[FinCrossSection, ...] = (
+            (
+                FinCrossSection.AIRFOIL,
+                FinCrossSection.DOUBLE_WEDGE,
+                FinCrossSection.ROUNDED,
+            )
+            if self.var_opt_param_cross_section.get()
+            else ()
+        )
+        return active_params, screen_cs
+
+    def _refresh_opt_param_summary(self) -> None:
+        labels = (
+            ("root_chord", "Root"),
+            ("tip_chord", "Tip"),
+            ("span", "Span"),
+            ("sweep_angle_deg", "Sweep"),
+        )
+        active_params, screen_cs = self._selected_opt_params()
+        opt_names = [lbl for key, lbl in labels if key in active_params]
+        locked_names = [lbl for key, lbl in labels if key not in active_params]
+        if screen_cs:
+            opt_names.append("Cross-Section")
+        else:
+            locked_names.append("Cross-Section")
+        locked_names.append("Thickness")
+
+        if not active_params and not screen_cs:
+            self.lbl_opt_params_summary.configure(
+                text="Select at least one parameter above to optimize.",
+                text_color=("#dc2626", "#f87171"),
+            )
+            return
+        self.lbl_opt_params_summary.configure(
+            text=f"Optimizing: {', '.join(opt_names)}  |  Locked: {', '.join(locked_names)}",
+            text_color=("#475569", "#94a3b8"),
+        )
 
     def _build_next_steps_card(self, parent, row: int) -> None:
         card = SectionCard(
@@ -1924,6 +2022,13 @@ class Ork2CfdApp(ctk.CTk):
             return
 
         cfg = self._collect_config()
+        active_params, screen_cs = self._selected_opt_params()
+        if not active_params and not screen_cs:
+            self._append_log(
+                "[ERROR] Select at least one fin parameter to optimize (Section 5)."
+            )
+            return
+
         try:
             max_sims = max(3, int(float(self.var_opt_max_sims.get().strip())))
         except ValueError:
@@ -1962,7 +2067,8 @@ class Ork2CfdApp(ctk.CTk):
             max_sims=max_sims,
             stage_selection=cfg.stage_selection,
             target_fin_stage=target_stage_key,
-            screen_cross_sections=(),
+            active_params=active_params,
+            screen_cross_sections=screen_cs,
             mach=cfg.flight.mach,
             altitude_m=cfg.flight.altitude_m,
             aoa_deg=cfg.flight.aoa_deg,
@@ -2027,9 +2133,10 @@ class Ork2CfdApp(ctk.CTk):
             )
         )
         self._start_activity_ticker()
+        param_desc = ", ".join(list(active_params) + (["cross_section"] if screen_cs else []))
         self._append_log(
             f"[INFO] Starting fin optimization ({max_sims} sims, target={target_stage_key}, "
-            f"SM>={min_sm:.2f} cal, dry_run={dry_run}) in {opt_dir}"
+            f"params=[{param_desc}], SM>={min_sm:.2f} cal, dry_run={dry_run}) in {opt_dir}"
         )
 
         worker = threading.Thread(
